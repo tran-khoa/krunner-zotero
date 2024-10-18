@@ -1,0 +1,17 @@
+{
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "mail@ktran.de",
+        "Name": "Viet Anh Khoa Tran"
+      }
+    ],
+    "Description": "Zotero integration for KRunner",
+    "EnabledByDefault": true,
+    "Icon": "user-bookmarks",
+    "License": "GPL",
+    "Name": "Zotero",
+    "Version": "0.1",
+    "Website": "https://ktran.de"
+  }
+}
