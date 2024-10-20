@@ -1,6 +1,7 @@
 #pragma once
 
 #include <KRunner/AbstractRunner>
+#include <QSqlDatabase>
 
 class ZoteroRunner : public KRunner::AbstractRunner
 {
@@ -17,6 +18,6 @@ protected:
     void init() override;
 
 private:
-  QString m_path;
-  QString m_triggerWord;
+    QString m_zoteroPath;
+    QSqlDatabase m_db;
 };
