@@ -2,6 +2,7 @@
 
 #include <KRunner/AbstractRunner>
 #include <QSqlDatabase>
+#include <index.h>
 
 class ZoteroRunner : public KRunner::AbstractRunner
 {
@@ -19,5 +20,6 @@ protected:
 
 private:
     QString m_zoteroPath;
-    QSqlDatabase m_db;
+    QString m_dbPath;
+    Index *m_index;
 };

@@ -20,18 +20,19 @@ struct IndexEntry
 class Index
 {
 public:
-    Index(const QString &m_dbPath, const Zotero &zotero);
+    Index(const QString &dbIndexPath, const QString &dbZoteroPath);
     ~Index();
-    [[nodiscard]] std::optional<QDateTime> lastModified() const;
     [[nodiscard]] int length() const;
     [[nodiscard]] std::vector<IndexEntry> search(const QString &needle) const;
     void update(bool force = false) const;
 
 
 private:
-    QString m_dbPath;
-    Zotero m_zotero;
+    QString m_dbIndexPath;
+    QString m_dbZoteroPath;
     QSqlDatabase m_db;
 
     void setup();
+    bool needs_update() const;
+    QDateTime last_modified() const;
 };

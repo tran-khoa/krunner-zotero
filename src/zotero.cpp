@@ -2,6 +2,7 @@
 #include <QFileInfo>
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QUuid>
 #include <generator>
 #include <optional>
 #include <qregularexpression.h>
@@ -101,12 +102,12 @@ namespace ZoteroSQL
 
 Zotero::Zotero(const QString &dbPath) : m_dbPath(dbPath)
 {
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("zotero"));
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QUuid::createUuid().toString());
     m_db.setDatabaseName(dbPath);
     m_db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
     if (!m_db.open())
     {
-        qWarning() << "Failed to open Zotero database";
+        qWarning() << "Failed to open Zotero database: " << m_db.lastError().text();
     }
 }
 
@@ -241,4 +242,3 @@ std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDat
         co_yield std::move(item);
     }
 }
-

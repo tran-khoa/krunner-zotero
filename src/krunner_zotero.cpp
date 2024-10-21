@@ -5,6 +5,7 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlRelationalTableModel>
+#include <QStandardPaths>
 #include <QString>
 #include <index.h>
 
@@ -17,50 +18,36 @@ ZoteroRunner::ZoteroRunner(QObject *parent, const KPluginMetaData &data, const Q
 void ZoteroRunner::init()
 {
     reloadConfiguration();
-
     connect(this, &AbstractRunner::prepare, this,
             [this]()
             {
-                m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"));
-                m_db.setDatabaseName(QDir(m_zoteroPath).filePath(QStringLiteral("zotero.sqlite")));
-                m_db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
-                if (!m_db.open())
-                {
-                    qWarning() << "Failed to open Zotero database";
-                }
+                m_index = new Index(QDir(m_dbPath).filePath(QStringLiteral("zotero_index.sqlite")),
+                                    QDir(m_zoteroPath).filePath(QStringLiteral("zotero.sqlite")));
             });
-
-    connect(this, &AbstractRunner::teardown, this, [this]() { m_db.close(); });
+    connect(this, &AbstractRunner::teardown, this, [this]() { delete m_index; });
 }
 
 void ZoteroRunner::match(KRunner::RunnerContext &context)
 {
     const QString query = context.query();
+    if (query.length() < 3)
+    {
+        return;
+    }
 
-    QSqlQuery sqliteQuery;
-
-    const QString sqliteQueryString = QStringLiteral(R"(
-    SELECT  items.itemID AS id,
-            items.dateModified AS modified,
-            items.key AS key,
-            items.libraryID AS library,
-            itemTypes.typeName AS type
-        FROM items
-        LEFT JOIN itemTypes
-            ON items.itemTypeID = itemTypes.itemTypeID
-        LEFT JOIN deletedItems
-            ON items.itemID = deletedItems.itemID
-    -- Ignore notes and attachments
-    WHERE items.itemTypeID not IN (1, 14)
-    AND deletedItems.dateDeleted IS NULL
-    )");
-    sqliteQuery.exec(sqliteQueryString);
-    while (sqliteQuery.next())
+    QList<KRunner::QueryMatch> matches;
+    auto results = m_index->search(query);
+    for (const auto &item : results)
     {
         KRunner::QueryMatch match(this);
-        match.setText(sqliteQuery.value(2).toString());
-        context.addMatch(match);
+        match.setText(item.title);
+        match.setSubtext(item.abstract);
+        match.setIconName(QStringLiteral("zotero"));
+        match.setRelevance(item.score / results[0].score);
+        matches.append(match);
     }
+
+    context.addMatches(matches);
 }
 
 void ZoteroRunner::run(const KRunner::RunnerContext &context, const KRunner::QueryMatch &match)
@@ -72,6 +59,8 @@ void ZoteroRunner::reloadConfiguration()
 {
     const KConfigGroup c = config();
     m_zoteroPath = c.readEntry("zoteroPath", QDir::home().filePath(QStringLiteral("Zotero")));
+    m_dbPath = c.readEntry("dbPath", QStandardPaths::standardLocations(QStandardPaths::AppDataLocation).first());
+    qDebug() << "dbPath: " << m_dbPath;
 }
 
 K_PLUGIN_CLASS_WITH_JSON(ZoteroRunner, "krunner_zotero.json")

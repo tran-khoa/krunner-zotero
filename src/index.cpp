@@ -6,6 +6,7 @@
 
 #include <QSqlError>
 #include <QSqlQuery>
+#include <QUuid>
 
 #include "utils.h"
 
@@ -69,10 +70,11 @@ namespace IndexSQL
 } // namespace IndexSQL
 
 
-Index::Index(const QString &dbPath, const Zotero &zotero) : m_dbPath(dbPath), m_zotero(zotero)
+Index::Index(const QString &dbIndexPath, const QString &dbZoteroPath) :
+    m_dbIndexPath(dbIndexPath), m_dbZoteroPath(dbZoteroPath)
 {
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QStringLiteral("index"));
-    m_db.setDatabaseName(dbPath);
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QUuid::createUuid().toString());
+    m_db.setDatabaseName(m_dbIndexPath);
     if (!m_db.open())
     {
         qWarning() << "Failed to open Index database: " << m_db.lastError().text();
@@ -121,26 +123,14 @@ void Index::setup()
     update(true);
 }
 
+QDateTime Index::last_modified() const { return QFileInfo(m_dbIndexPath).lastModified(); }
 
-std::optional<QDateTime> Index::lastModified() const { return QFileInfo(m_dbPath).lastModified(); }
-int Index::length() const
-{
-    QSqlQuery query(m_db);
-    query.exec(QStringLiteral("SELECT COUNT(*) FROM items"));
-    if (!query.exec())
-    {
-        qWarning() << "Failed to get length of Index: " << query.lastError().text();
-        return -1;
-    }
-    query.next();
-    return query.value(0).toInt();
-}
 
+bool Index::needs_update() const { return QFileInfo(m_dbZoteroPath).lastModified() > last_modified(); }
 
 void Index::update(const bool force) const
 {
-    const auto indexLastModified = this->lastModified();
-    if (!force && indexLastModified && m_zotero.lastModified() <= indexLastModified)
+    if (!force && !needs_update())
     {
         qDebug() << "[Index] Not updating index";
         return;
@@ -148,7 +138,8 @@ void Index::update(const bool force) const
 
     qDebug() << "[Index] Updating index";
 
-    for (const ZoteroItem &&item : m_zotero.items(indexLastModified))
+    const Zotero zotero(m_dbZoteroPath);
+    for (const ZoteroItem &&item : zotero.items(last_modified()))
     {
         const auto creators =
             vectorMapConcat<Creator>(item.creators, [](const auto &creator) { return creator.family; });
