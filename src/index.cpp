@@ -73,7 +73,8 @@ namespace IndexSQL
 Index::Index(const QString &dbIndexPath, const QString &dbZoteroPath) :
     m_dbIndexPath(dbIndexPath), m_dbZoteroPath(dbZoteroPath)
 {
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QUuid::createUuid().toString());
+    m_indexConnectionId = QUuid::createUuid().toString();
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_indexConnectionId);
     m_db.setDatabaseName(m_dbIndexPath);
     if (!m_db.open())
     {
@@ -83,7 +84,11 @@ Index::Index(const QString &dbIndexPath, const QString &dbZoteroPath) :
     setup();
     update();
 }
-Index::~Index() { m_db.close(); }
+Index::~Index()
+{
+    m_db.close();
+    QSqlDatabase::removeDatabase(m_indexConnectionId);
+}
 
 void Index::setup()
 {

@@ -97,4 +97,5 @@ public:
 private:
     QString m_dbPath;
     QSqlDatabase m_db;
+    QString m_dbConnectionId;
 };

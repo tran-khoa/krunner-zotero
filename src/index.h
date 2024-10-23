@@ -31,6 +31,7 @@ private:
     QString m_dbIndexPath;
     QString m_dbZoteroPath;
     QSqlDatabase m_db;
+    QString m_indexConnectionId;
 
     void setup();
     bool needs_update() const;

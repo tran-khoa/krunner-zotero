@@ -102,7 +102,8 @@ namespace ZoteroSQL
 
 Zotero::Zotero(const QString &dbPath) : m_dbPath(dbPath)
 {
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), QUuid::createUuid().toString());
+    m_dbConnectionId = QUuid::createUuid().toString();
+    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_dbConnectionId);
     m_db.setDatabaseName(dbPath);
     m_db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
     if (!m_db.open())
@@ -111,7 +112,11 @@ Zotero::Zotero(const QString &dbPath) : m_dbPath(dbPath)
     }
 }
 
-Zotero::~Zotero() { m_db.close(); }
+Zotero::~Zotero()
+{
+    m_db.close();
+    QSqlDatabase::removeDatabase(m_dbConnectionId);
+}
 
 QDateTime Zotero::lastModified() const { return QFileInfo(m_dbPath).lastModified(); }
 std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDateTime> &lastModified) const
