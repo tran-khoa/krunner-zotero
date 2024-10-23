@@ -141,12 +141,11 @@ std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDat
 
     while (itemQuery.next())
     {
-        ZoteroItem item;
-        item.id = itemQuery.value(QStringLiteral("id")).toInt();
-        item.modified = itemQuery.value(QStringLiteral("modified")).toDateTime();
-        item.key = itemQuery.value(QStringLiteral("key")).toString();
-        item.library = itemQuery.value(QStringLiteral("library")).toInt();
-        item.type = itemQuery.value(QStringLiteral("type")).toString();
+        ZoteroItem item{.id = itemQuery.value(QStringLiteral("id")).toInt(),
+                        .modified = itemQuery.value(QStringLiteral("modified")).toDateTime(),
+                        .key = itemQuery.value(QStringLiteral("key")).toString(),
+                        .library = itemQuery.value(QStringLiteral("library")).toInt(),
+                        .type = itemQuery.value(QStringLiteral("type")).toString()};
 
         QSqlQuery metadataQuery(m_db);
         metadataQuery.prepare(ZoteroSQL::selectMetadataByID);
@@ -186,13 +185,10 @@ std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDat
         attachmentsQuery.exec();
         while (attachmentsQuery.next())
         {
-            Attachment attachment;
-            attachment.key = attachmentsQuery.value(QStringLiteral("key")).toString();
-            attachment.path = attachmentsQuery.value(QStringLiteral("path")).toString();
-            attachment.title = attachmentsQuery.value(QStringLiteral("title")).toString();
-            attachment.url = attachmentsQuery.value(QStringLiteral("url")).toString();
-
-            item.attachments.append(std::move(attachment));
+            item.attachments.append({.key = attachmentsQuery.value(QStringLiteral("key")).toString(),
+                                     .path = attachmentsQuery.value(QStringLiteral("path")).toString(),
+                                     .title = attachmentsQuery.value(QStringLiteral("title")).toString(),
+                                     .url = attachmentsQuery.value(QStringLiteral("url")).toString()});
         }
 
         QSqlQuery collectionsQuery(m_db);
@@ -201,11 +197,10 @@ std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDat
         collectionsQuery.exec();
         while (collectionsQuery.next())
         {
-            Collection collection;
-            collection.name = collectionsQuery.value(QStringLiteral("name")).toString();
-            collection.key = collectionsQuery.value(QStringLiteral("key")).toString();
-
-            item.collections.append(std::move(collection));
+            item.collections.append({
+                .name = collectionsQuery.value(QStringLiteral("name")).toString(),
+                .key = collectionsQuery.value(QStringLiteral("key")).toString(),
+            });
         }
 
         QSqlQuery creatorsQuery(m_db);

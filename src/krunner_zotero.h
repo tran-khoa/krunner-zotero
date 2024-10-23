@@ -1,7 +1,6 @@
 #pragma once
 
 #include <KRunner/AbstractRunner>
-#include <QSqlDatabase>
 #include <index.h>
 
 class ZoteroRunner : public KRunner::AbstractRunner
@@ -9,7 +8,7 @@ class ZoteroRunner : public KRunner::AbstractRunner
     Q_OBJECT
 
 public:
-    ZoteroRunner(QObject *parent, const KPluginMetaData &data, const QVariantList &args);
+    ZoteroRunner(QObject *parent, const KPluginMetaData &data);
 
     void match(KRunner::RunnerContext &context) override;
     void run(const KRunner::RunnerContext &context, const KRunner::QueryMatch &match) override;

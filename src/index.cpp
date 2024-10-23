@@ -10,7 +10,7 @@
 
 #include "utils.h"
 
-constexpr int DB_VERSION = 0;
+constexpr int DB_VERSION = 1;
 
 
 namespace IndexSQL
@@ -19,6 +19,7 @@ namespace IndexSQL
 
         QStringLiteral(R"(
         CREATE VIRTUAL TABLE search USING fts5(
+            key,
             title,
             year,
             creators,
@@ -51,22 +52,22 @@ namespace IndexSQL
     )"),
         QStringLiteral("INSERT INTO dbinfo VALUES('version', %1);").arg(DB_VERSION)};
     const auto getVersion = QStringLiteral("SELECT value AS version FROM dbinfo WHERE key = 'version'");
-    const auto reset = QStringLiteral(R"(
-        DROP TABLE IF EXISTS `data`;
-        DROP TABLE IF EXISTS `dbinfo`;
-        DROP TABLE IF EXISTS `modified`;
-        DROP TABLE IF EXISTS `search`;
-        VACUUM;
-        PRAGMA INTEGRITY_CHECK;)");
-    const auto insertOrReplace = QStringLiteral("INSERT OR REPLACE "
-                                                "INTO search (rowid, title, year, creators, authors, editors, tags, "
-                                                "collections, attachments, notes, abstract) "
-                                                "VALUES(:rowid, :title, :year, :creators, :authors, :editors, :tags, "
-                                                ":collections, :attachments, :notes, :abstract);");
+    const std::array reset = {QStringLiteral(R"(DROP TABLE IF EXISTS `data`;)"),
+                              QStringLiteral(R"(DROP TABLE IF EXISTS `dbinfo`;)"),
+                              QStringLiteral(R"(DROP TABLE IF EXISTS `modified`;)"),
+                              QStringLiteral(R"(DROP TABLE IF EXISTS `search`;)"),
+                              QStringLiteral(R"(VACUUM;)"),
+                              QStringLiteral(R"(PRAGMA INTEGRITY_CHECK;)")};
+    const auto insertOrReplace =
+        QStringLiteral("INSERT OR REPLACE "
+                       "INTO search (rowid, key, title, year, creators, authors, editors, tags, "
+                       "collections, attachments, notes, abstract) "
+                       "VALUES(:rowid, :key, :title, :year, :creators, :authors, :editors, :tags, "
+                       ":collections, :attachments, :notes, :abstract);");
     const auto search =
-        QStringLiteral("SELECT rowid, *, bm25(search, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.4, 0.3, 0.3) "
+        QStringLiteral("SELECT rowid, *, bm25(search, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 0.4, 0.3, 0.3) "
                        "AS score FROM search WHERE search MATCH ? "
-                       "ORDER BY score LIMIT 100");
+                       "ORDER BY score LIMIT 10");
 } // namespace IndexSQL
 
 
@@ -101,10 +102,16 @@ void Index::setup()
             qDebug() << "[Index] Database version mismatch: expected " << DB_VERSION << " but got "
                      << versionQuery.value(QStringLiteral("version")).toInt();
             QSqlQuery resetQuery(m_db);
-            if (!resetQuery.exec(IndexSQL::reset))
+            for (const QString &statement : IndexSQL::reset)
             {
-                qWarning() << "Failed to reset Index database: " << resetQuery.lastError().text();
+                if (!resetQuery.exec(statement))
+                {
+                    qWarning() << "Failed to reset Index database: " << resetQuery.lastError().text();
+                    m_db.rollback()();
+                    return;
+                }
             }
+            m_db.commit();
         }
         else
         {
@@ -120,7 +127,6 @@ void Index::setup()
         {
             qWarning() << "Failed to create tables for Index: " << createQuery.lastError().text();
             m_db.rollback();
-            qDebug() << "Error:" << createQuery.lastError().text();
             return;
         }
     }
@@ -166,6 +172,7 @@ void Index::update(const bool force) const
         QSqlQuery query(m_db);
         query.prepare(IndexSQL::insertOrReplace);
         query.bindValue(QStringLiteral(":rowid"), item.id);
+        query.bindValue(QStringLiteral(":key"), item.key);
         query.bindValue(QStringLiteral(":title"), item.title);
         query.bindValue(QStringLiteral(":year"), item.date.toString(QStringLiteral("yyyy")));
         query.bindValue(QStringLiteral(":creators"), creators);

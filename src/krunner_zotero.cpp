@@ -6,11 +6,7 @@
 #include <QString>
 #include <index.h>
 
-ZoteroRunner::ZoteroRunner(QObject *parent, const KPluginMetaData &data, const QVariantList &args) :
-    AbstractRunner(parent, data)
-{
-    Q_UNUSED(args);
-}
+ZoteroRunner::ZoteroRunner(QObject *parent, const KPluginMetaData &data) : AbstractRunner(parent, data) {}
 
 void ZoteroRunner::init()
 {
@@ -58,6 +54,7 @@ void ZoteroRunner::match(KRunner::RunnerContext &context)
 
 void ZoteroRunner::run(const KRunner::RunnerContext &context, const KRunner::QueryMatch &match)
 {
+    Q_UNUSED(context);
     qWarning() << match.data().toString();
 }
 
@@ -73,3 +70,5 @@ void ZoteroRunner::reloadConfiguration()
 K_PLUGIN_CLASS_WITH_JSON(ZoteroRunner, "krunner_zotero.json")
 
 #include "krunner_zotero.moc"
+
+#include "moc_krunner_zotero.cpp"
