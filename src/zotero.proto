@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+message Attachment {
+  string key = 1;
+  string path = 2;
+  string title = 3;
+  string url = 4;
+  string contentType = 5;
+}
+
+message Collection {
+  string name = 1;
+  string key = 2;
+}
+
+message Creator {
+  int32 index = 1;
+  string given = 2;
+  string family = 3;
+  string type = 4;
+}
+
+message ZoteroItem {
+  int32 id = 1;
+  string modified = 2; // ISO format
+  string key = 3;
+  int32 library = 4;
+  string type = 5;
+  string title = 6;
+  string date = 7; // Store as string in ISO format
+  string abstract = 8;
+  repeated Attachment attachments = 9;
+  repeated Collection collections = 10;
+  repeated Creator creators = 11;
+  repeated string notes = 12;
+  repeated string tags = 13;
+}

@@ -8,6 +8,6 @@ int main(int argc, char **argv)
     Zotero zotero("/home/khoa/zotero_toy.sql");
     for (const auto &&item : zotero.items())
     {
-        item.print();
+        qDebug() << item.title;
     }
 }
