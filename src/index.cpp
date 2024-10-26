@@ -193,6 +193,10 @@ void Index::update(const bool force) const
         {
             qWarning() << "Failed to insert or replace item in Index: " << query.lastError().text();
         }
+        else
+        {
+            qDebug() << "Inserted item " << item.id() << item.title();
+        }
 
         QSqlQuery insertDataQuery(m_db);
         insertDataQuery.prepare(IndexSQL::insertOrReplaceData);
@@ -210,6 +214,8 @@ void Index::update(const bool force) const
             qWarning() << "Failed to insert or replace data in Index: " << insertDataQuery.lastError().text();
         }
     }
+
+    qDebug() << "[Index] Index updated";
 }
 
 std::vector<std::pair<ZoteroItem, float>> Index::search(const QString &needle) const

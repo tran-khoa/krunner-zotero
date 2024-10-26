@@ -26,7 +26,7 @@ namespace ZoteroSQL
             ON items.itemTypeID = itemTypes.itemTypeID
         LEFT JOIN deletedItems
             ON items.itemID = deletedItems.itemID
-        WHERE type NOT IN ("attachment", "note")
+        WHERE type NOT IN ("attachment", "annotation", "note")
         AND deletedItems.dateDeleted IS NULL
     )");
     const auto selectItemsByLastModified = selectItems + QStringLiteral(" AND MODIFIED > ?");
@@ -110,6 +110,10 @@ Zotero::Zotero(const QString &dbPath) : m_dbPath(dbPath)
     m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_dbConnectionId);
     QString tempFile =
         QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/zotero.sqlite");
+    if (QFile::exists(tempFile))
+    {
+        QFile::remove(tempFile);
+    }
     QFile::copy(dbPath, tempFile);
     m_db.setDatabaseName(tempFile);
     m_db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
@@ -123,6 +127,7 @@ Zotero::~Zotero()
 {
     m_db.close();
     QSqlDatabase::removeDatabase(m_dbConnectionId);
+    qDebug() << "Zotero database closed";
 }
 
 QDateTime Zotero::lastModified() const { return QFileInfo(m_dbPath).lastModified(); }
