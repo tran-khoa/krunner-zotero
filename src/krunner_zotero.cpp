@@ -6,52 +6,42 @@
 #include <QStandardPaths>
 #include <QString>
 #include <index.h>
-#include <zotero.pb.h>
 
-ZoteroRunner::ZoteroRunner(QObject *parent, const KPluginMetaData &data) : AbstractRunner(parent, data) {}
 
 void ZoteroRunner::init()
 {
     reloadConfiguration();
+    this->setMinLetterCount(3);
+    const Zotero zotero(m_zoteroPath);
+    const Index index(m_dbPath, zotero);
+    // ReSharper disable once CppExpressionWithoutSideEffects
+    index.setup();
 
     connect(this, &AbstractRunner::prepare, this,
-            [this]()
+            [this, index]()
             {
-                m_index = new Index(QDir(m_dbPath).filePath(QStringLiteral("zotero_index.sqlite")),
-                                    QDir(m_zoteroPath).filePath(QStringLiteral("zotero.sqlite")));
+                index.update();
             });
-    connect(this, &AbstractRunner::teardown, this,
-            [this]()
-            {
-                delete m_index;
-                qDebug() << "Index destructed";
-            });
-    this->setMinLetterCount(3);
 }
 
 void ZoteroRunner::match(KRunner::RunnerContext &context)
 {
-    const QString query = context.query();
     QList<KRunner::QueryMatch> matches;
-    auto results = m_index->search(query);
-    for (const auto &item : results)
+    const Zotero zotero(m_zoteroPath);
+    const Index index(m_dbPath, zotero);
+    const auto results = index.search(context.query());
+    for (const auto &[item, score] : results)
     {
         KRunner::QueryMatch match(this);
-        match.setText(QString::fromStdString(item.first.title()));
-        match.setSubtext(QString::fromStdString(item.first.date()));
+        match.setText(QString::fromStdString(item.meta.at("title")));
+        match.setSubtext(QString::fromStdString(item.meta.at("year")));
         match.setMultiLine(true);
         match.setIconName(QStringLiteral("zotero"));
-        match.setRelevance(item.second / results[0].second);
+        match.setRelevance(score / results[0].second);
         match.setCategoryRelevance(KRunner::QueryMatch::CategoryRelevance::High);
 
-        std::string serializedItem;
-        if (!item.first.SerializeToString(&serializedItem))
-        {
-            qDebug() << "Failed to serialize to data.";
-            return;
-        }
-        match.setData(QByteArray(serializedItem.data(), static_cast<int>(serializedItem.size())));
-        matches.append(std::move(match));
+        match.setData(QString::fromStdString(json(item).dump()));
+        matches.emplace_back(match);
     }
     context.addMatches(matches);
 }
@@ -59,27 +49,21 @@ void ZoteroRunner::match(KRunner::RunnerContext &context)
 void ZoteroRunner::run(const KRunner::RunnerContext &context, const KRunner::QueryMatch &match)
 {
     Q_UNUSED(context);
-    const auto payload = match.data().toByteArray();
-    ZoteroItem item;
-    if (!item.ParseFromArray(payload.data(), static_cast<int>(payload.size())))
+    const ZoteroItem item = json::parse(match.data().toString().toStdString()).get<ZoteroItem>();
+    for (const auto &attachment : item.attachments)
     {
-        qWarning() << "Failed to parse data item.";
-    }
-
-    for (const auto &attachment : item.attachments())
-    {
-        if (attachment.contenttype() == QStringLiteral("application/pdf"))
+        if (attachment.contentType == "application/pdf")
         {
             const QUrl url(QStringLiteral("zotero://open-pdf/library/items/") +
-                           QString::fromStdString(attachment.key()));
+                QString::fromStdString(attachment.key));
             // ReSharper disable once CppDFAMemoryLeak
             const auto job = new KIO::OpenUrlJob(url);
             job->start();
             return;
         }
     }
-    qDebug() << "No PDF attachment found, opening Zotero item." << QString::fromStdString(item.key());
-    const QUrl url(QStringLiteral("zotero://select/library/items/") + QString::fromStdString(item.key()));
+    qDebug() << "No PDF attachment found, opening Zotero item." << QString::fromStdString(item.key);
+    const QUrl url(QStringLiteral("zotero://select/library/items/") + QString::fromStdString(item.key));
     // ReSharper disable once CppDFAMemoryLeak
     const auto job = new KIO::OpenUrlJob(url);
     job->start();

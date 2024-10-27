@@ -84,7 +84,7 @@ namespace IndexSQL
             "AS score FROM search WHERE search MATCH ? "
             "ORDER BY score LIMIT 10");
     const auto selectData = QStringLiteral("SELECT obj FROM data WHERE id = ?");
-    const auto deleteIdNotIn = QStringLiteral("DELETE FROM data WHERE id NOT IN (?);");
+    const auto deleteIdNotIn = QStringLiteral("DELETE FROM data WHERE id NOT IN (%1);");
 } // namespace IndexSQL
 
 
@@ -292,10 +292,7 @@ void Index::update(const bool force) const
         else
         {
             QSqlQuery deleteQuery(db);
-            deleteQuery.prepare(IndexSQL::deleteIdNotIn);
-            auto csv = join(validIDs, ',');
-            qDebug () << "CSV: " << csv;
-            deleteQuery.addBindValue(QString::fromStdString(csv));
+            deleteQuery.prepare(IndexSQL::deleteIdNotIn.arg(QString::fromStdString(join(validIDs, ','))));
             if (!deleteQuery.exec())
             {
                 qWarning() << "[Index] Failed to delete invalid IDs: " << deleteQuery.lastError().text();

@@ -36,6 +36,7 @@ namespace ZoteroSQL
                                     LEFT JOIN itemDataValues ON itemData.valueID = itemDataValues.valueID
                            GROUP BY itemData.itemID),
              _Attachments AS (SELECT itemAttachments.parentItemID AS parentID,
+                                     items.key                    AS key,
                                      itemAttachments.path         AS path,
                                      itemAttachments.contentType  AS contentType,
                                      json_group_object(
@@ -51,7 +52,7 @@ namespace ZoteroSQL
                                          json_group_array(
                                                  json_patch(
                                                          json_object(
-                                                                 'path', path, 'contentType', contentType
+                                                                 'path', path, 'contentType', contentType, 'key', key
                                                          ),
                                                          meta
                                                  )

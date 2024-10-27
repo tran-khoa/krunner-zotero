@@ -11,13 +11,14 @@ using namespace nlohmann::literals;
 
 struct Attachment
 {
+    std::string key;
     std::string path; // storage:Mirzadeh2022ArchitectureMattersContinualLearning.pdf
     std::string title; // Preprint PDF
     std::string url; // http://arxiv.org/pdf/2202.00275v1
     std::string contentType; // application/pdf
 };
 
-NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Attachment, path, title, url, contentType)
+NLOHMANN_DEFINE_TYPE_NON_INTRUSIVE_WITH_DEFAULT(Attachment, key, path, title, url, contentType)
 
 
 struct ZoteroItem

@@ -3,15 +3,15 @@
 #include <KRunner/AbstractRunner>
 #include <index.h>
 
-class ZoteroRunner : public KRunner::AbstractRunner
+class ZoteroRunner final : public KRunner::AbstractRunner
 {
     Q_OBJECT
 
 public:
-    ZoteroRunner(QObject *parent, const KPluginMetaData &data);
+    ZoteroRunner(QObject* parent, const KPluginMetaData& data) : AbstractRunner(parent, data) {}
 
-    void match(KRunner::RunnerContext &context) override;
-    void run(const KRunner::RunnerContext &context, const KRunner::QueryMatch &match) override;
+    void match(KRunner::RunnerContext& context) override;
+    void run(const KRunner::RunnerContext& context, const KRunner::QueryMatch& match) override;
     void reloadConfiguration() override;
 
 protected:
@@ -20,5 +20,4 @@ protected:
 private:
     QString m_zoteroPath;
     QString m_dbPath;
-    Index *m_index;
 };

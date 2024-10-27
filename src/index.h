@@ -1,6 +1,8 @@
 #pragma once
 #include <zotero.h>
 
+#include <utility>
+
 struct IndexEntry
 {
     int id;
@@ -21,8 +23,8 @@ struct IndexEntry
 class Index
 {
 public:
-    Index(const QString&& dbIndexPath, const Zotero&& zotero): m_dbIndexPath(dbIndexPath),
-                                                               m_zotero(zotero)
+    Index(QString dbIndexPath, const Zotero& zotero): m_dbIndexPath(std::move(dbIndexPath)),
+                                                      m_zotero(zotero)
     {
     }
 
