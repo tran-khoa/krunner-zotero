@@ -1,13 +1,16 @@
 #include <QApplication>
+#include <iostream>
 #include "zotero.h"
+using json = nlohmann::json;
 
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);
 
-    Zotero zotero("/home/khoa/zotero_toy.sql");
+    Zotero zotero(QStringLiteral("/home/work/zotero_toy.sql"));
     for (const auto &&item : zotero.items())
     {
-        qDebug() << item.title;
+        json j = item;
+        std::cout << j << std::endl;
     }
 }

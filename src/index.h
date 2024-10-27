@@ -1,5 +1,4 @@
 #pragma once
-#include <QMutex>
 #include <zotero.h>
 
 struct IndexEntry
@@ -22,20 +21,20 @@ struct IndexEntry
 class Index
 {
 public:
-    Index(const QString &dbIndexPath, const QString &dbZoteroPath);
-    ~Index();
-    [[nodiscard]] std::vector<std::pair<ZoteroItem, float>> search(const QString &needle) const;
+    Index(const QString&& dbIndexPath, const Zotero&& zotero): m_dbIndexPath(dbIndexPath),
+                                                               m_zotero(zotero)
+    {
+    }
+
+    ~Index() = default;
+    [[nodiscard]] std::vector<std::pair<ZoteroItem, float>> search(const QString& needle) const;
+    bool setup() const;
     void update(bool force = false) const;
 
-
 private:
-    QString m_dbIndexPath;
-    QString m_dbZoteroPath;
-    QSqlDatabase m_db;
-    QString m_indexConnectionId;
-    QMutex m_mutex;
+    const QString m_dbIndexPath;
+    const Zotero m_zotero;
 
-    void setup();
-    bool needs_update() const;
+    [[nodiscard]] bool needs_update() const;
     [[nodiscard]] QDateTime last_modified() const;
 };

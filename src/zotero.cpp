@@ -7,281 +7,200 @@
 #include <QUuid>
 #include <generator>
 #include <optional>
-
-#include "zotero.pb.h"
+#include "zotero_item.h"
 
 const QRegularExpression ZOTERO_DATE_REGEX(QStringLiteral(R"((\d{4})-(\d{2})-(\d{2}).*)"));
 const QRegularExpression HTML_TAG_REGEX(QStringLiteral(R"(<[^>]*>)"));
 
 namespace ZoteroSQL
 {
-    const auto selectItems = QStringLiteral(R"(
-    SELECT  items.itemID AS id,
-            items.dateModified AS modified,
-            items.key AS key,
-            items.libraryID AS library,
-            itemTypes.typeName AS type
+    const auto query = QStringLiteral(R"(
+        WITH _Authors AS (SELECT itemCreators.itemID as parentID,
+                                 concat(
+                                         creators.firstName, ' ', creators.lastName
+                                 )                   as author
+                          FROM creators
+                                   LEFT JOIN itemCreators ON creators.creatorID = itemCreators.creatorID
+                                   LEFT JOIN creatorTypes ON itemCreators.creatorTypeID = creatorTypes.creatorTypeID
+                          ORDER BY itemCreators.orderIndex ASC),
+             _ItemAuthors AS (SELECT parentID,
+                                     json_group_array(author) as authors
+                              FROM _Authors
+                              GROUP BY parentID),
+             _ItemMeta AS (SELECT itemData.itemID as parentID,
+                                  json_group_object(
+                                          fields.fieldName, itemDataValues.value
+                                  )               as meta
+                           FROM itemData
+                                    LEFT JOIN fields ON itemData.fieldID = fields.fieldID
+                                    LEFT JOIN itemDataValues ON itemData.valueID = itemDataValues.valueID
+                           GROUP BY itemData.itemID),
+             _Attachments AS (SELECT itemAttachments.parentItemID AS parentID,
+                                     itemAttachments.path         AS path,
+                                     itemAttachments.contentType  AS contentType,
+                                     json_group_object(
+                                             fields.fieldName, itemDataValues.value
+                                     )                            AS meta
+                              FROM itemAttachments
+                                       LEFT JOIN items ON itemAttachments.itemID = items.itemID
+                                       LEFT JOIN itemData ON items.itemID = itemData.itemID
+                                       LEFT JOIN fields ON itemData.fieldID = fields.fieldID
+                                       LEFT JOIN itemDataValues ON itemData.valueID = itemDataValues.valueID
+                              GROUP BY itemAttachments.itemID),
+             _ItemAttachments AS (SELECT parentID,
+                                         json_group_array(
+                                                 json_patch(
+                                                         json_object(
+                                                                 'path', path, 'contentType', contentType
+                                                         ),
+                                                         meta
+                                                 )
+                                         ) AS attachment_list
+                                  from _Attachments
+                                  GROUP BY _Attachments.parentID),
+             _ItemCollections AS (SELECT collectionItems.itemID                       AS parentID,
+                                         json_group_array(collections.collectionName) AS collections
+                                  FROM collections
+                                           LEFT JOIN collectionItems ON collections.collectionID = collectionItems.collectionID
+                                  GROUP BY collectionItems.itemID),
+             _ItemNotes AS (SELECT itemNotes.parentItemID           AS parentID,
+                                   json_group_array(itemNotes.note) AS note
+                            FROM itemNotes
+                            GROUP BY itemNotes.parentItemID),
+             _ItemTags AS (SELECT itemTags.itemID AS parentID, json_group_array(tags.name) AS tags
+                           FROM tags
+                                    LEFT JOIN itemTags ON tags.tagID = itemTags.tagID
+                           GROUP BY itemTags.itemID)
+        SELECT items.itemID                                     AS id,
+               items.dateModified                               AS modified,
+               items.key                                        AS key,
+               coalesce(_ItemAttachments.attachment_list, '[]') AS attachments,
+               coalesce(_ItemCollections.collections, '[]')     AS collections,
+               _ItemMeta.meta                                   AS meta,
+               coalesce(_ItemAuthors.authors, '[]')             AS authors,
+               coalesce(_ItemNotes.note, '[]')                  AS note,
+               coalesce(_ItemTags.tags, '[]')                   AS tags
         FROM items
-        LEFT JOIN itemTypes
-            ON items.itemTypeID = itemTypes.itemTypeID
-        LEFT JOIN deletedItems
-            ON items.itemID = deletedItems.itemID
-        WHERE type NOT IN ("attachment", "annotation", "note")
-        AND deletedItems.dateDeleted IS NULL
-    )");
-    const auto selectItemsByLastModified = selectItems + QStringLiteral(" AND MODIFIED > ?");
+                 LEFT JOIN itemTypes ON items.itemTypeID = itemTypes.itemTypeID
+                 LEFT JOIN deletedItems ON items.itemID = deletedItems.itemID
+                 LEFT JOIN _ItemMeta ON items.itemID = _ItemMeta.parentID
+                 LEFT JOIN _ItemAttachments ON items.itemID = _ItemAttachments.parentID
+                 LEFT JOIN _ItemCollections ON items.itemID = _ItemCollections.parentID
+                 LEFT JOIN _ItemAuthors ON items.itemID = _ItemAuthors.parentID
+                 LEFT JOIN _ItemNotes ON items.itemID = _ItemNotes.parentID
+                 LEFT JOIN _ItemTags ON items.itemID = _ItemTags.parentID
+        WHERE itemTypes.typeName NOT IN ('attachment', 'annotation', 'note')
+          AND deletedItems.dateDeleted IS NULL;
+        )");
+    const auto selectItemsByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
     const auto selectMetadataByID = QStringLiteral(R"(
-        SELECT  fields.fieldName AS name,
-                itemDataValues.value AS value
-            FROM itemData
-            LEFT JOIN fields
-                ON itemData.fieldID = fields.fieldID
-            LEFT JOIN itemDataValues
-                ON itemData.valueID = itemDataValues.valueID
-            WHERE itemData.itemID = ?
-    )");
-    const auto selectAttachmentsByID = QStringLiteral(R"(
-        SELECT
-            items.key AS key,
-            itemAttachments.path AS path,
-            itemAttachments.contentType AS contentType,
-            (SELECT  itemDataValues.value
+            SELECT  fields.fieldName AS name,
+                    itemDataValues.value AS value
                 FROM itemData
                 LEFT JOIN fields
                     ON itemData.fieldID = fields.fieldID
                 LEFT JOIN itemDataValues
                     ON itemData.valueID = itemDataValues.valueID
-            WHERE itemData.itemID = items.itemID AND fields.fieldName = 'title')
-            title,
-            (SELECT  itemDataValues.value
-                FROM itemData
-                LEFT JOIN fields
-                    ON itemData.fieldID = fields.fieldID
-                LEFT JOIN itemDataValues
-                    ON itemData.valueID = itemDataValues.valueID
-            WHERE itemData.itemID = items.itemID AND fields.fieldName = 'url')
-            url
-        FROM itemAttachments
-            LEFT JOIN items
-                ON itemAttachments.itemID = items.itemID
-        WHERE itemAttachments.parentItemID = ?
-    )");
-    const auto selectCollectionsByID = QStringLiteral(R"(
-        SELECT  collections.collectionName AS name,
-                collections.key AS key
-            FROM collections
-            LEFT JOIN collectionItems
-                ON collections.collectionID = collectionItems.collectionID
-        WHERE collectionItems.itemID = ?
-    )");
-    const auto selectCreatorsByID = QStringLiteral(R"(
-        SELECT  creators.firstName AS given,
-                creators.lastName AS family,
-                itemCreators.orderIndex AS `index`,
-                creatorTypes.creatorType AS `type`
-            FROM creators
-            LEFT JOIN itemCreators
-                ON creators.creatorID = itemCreators.creatorID
-            LEFT JOIN creatorTypes
-                ON itemCreators.creatorTypeID = creatorTypes.creatorTypeID
-        WHERE itemCreators.itemID = ?
-        ORDER BY `index` ASC
-    )");
-    const auto selectNotesByID = QStringLiteral(R"(
-        SELECT itemNotes.note AS note
-            FROM itemNotes
-            LEFT JOIN items
-                ON itemNotes.itemID = items.itemID
-        WHERE itemNotes.parentItemID = ?
-    )");
-    const auto selectTagsByID = QStringLiteral(R"(
-        SELECT tags.name AS name
-            FROM tags
-            LEFT JOIN itemTags
-                ON tags.tagID = itemTags.tagID
-        WHERE itemTags.itemID = ?
-    )");
+                WHERE itemData.itemID = ?
+            )");
+    const auto queryByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
+    const auto queryValidIDs = QStringLiteral(R"(
+        SELECT json_group_array(items.itemID) AS id
+        FROM items
+                 LEFT JOIN itemTypes ON items.itemTypeID = itemTypes.itemTypeID
+                 LEFT JOIN deletedItems ON items.itemID = deletedItems.itemID
+        WHERE itemTypes.typeName NOT IN ('attachment', 'annotation', 'note')
+          AND deletedItems.dateDeleted IS NULL;
+        )");
 } // namespace ZoteroSQL
 
 
-Zotero::Zotero(const QString &dbPath) : m_dbPath(dbPath)
-{
-    m_dbConnectionId = QUuid::createUuid().toString();
-    m_db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), m_dbConnectionId);
-    QString tempFile =
-        QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/zotero.sqlite");
-    if (QFile::exists(tempFile))
-    {
-        QFile::remove(tempFile);
-    }
-    QFile::copy(dbPath, tempFile);
-    m_db.setDatabaseName(tempFile);
-    m_db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
-    if (!m_db.open())
-    {
-        qWarning() << "Failed to open Zotero database: " << m_db.lastError().text();
-    }
-}
-
-Zotero::~Zotero()
-{
-    m_db.close();
-    QSqlDatabase::removeDatabase(m_dbConnectionId);
-    qDebug() << "Zotero database closed";
-}
-
 QDateTime Zotero::lastModified() const { return QFileInfo(m_dbPath).lastModified(); }
-std::generator<const ZoteroItem> Zotero::items(const std::optional<const QDateTime> &lastModified) const
+
+std::vector<int> Zotero::validIDs() const
 {
-    QSqlQuery itemQuery(m_db);
-    bool queryResult;
-    if (lastModified.has_value())
+    std::vector<int> ids;
+    auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"));
+    db.setDatabaseName(m_dbPath);
+    db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+    if (!db.open())
     {
-        itemQuery.prepare(ZoteroSQL::selectItemsByLastModified);
-        itemQuery.addBindValue(lastModified.value().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
-        queryResult = itemQuery.exec();
+        qWarning() << "Failed to open Zotero database: " << db.lastError().text();
+        return ids;
     }
-    else
+    QSqlQuery query(db);
+    if (!query.exec(ZoteroSQL::queryValidIDs))
     {
-        queryResult = itemQuery.exec(ZoteroSQL::selectItems);
+        qWarning() << "Failed to query valid IDs: " << query.lastError().text();
+        return ids;
     }
-
-    if (!queryResult)
+    if (query.next())
     {
-        qWarning() << "Failed to query items:" << itemQuery.lastError().text();
+        auto jsonString = query.value(QStringLiteral("id")).toString().toStdString();
+        ids = json::parse(jsonString).get<std::vector<int>>();
     }
+    return ids;
+}
 
-    while (itemQuery.next())
+std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDateTime> &lastModified) const
+{
+    const auto dbConnectionId = QUuid::createUuid().toString();
+    const QString dbCopyPath =
+        QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/krunner_zotero_%1.sqlite").
+        arg(dbConnectionId);
+    if (QFile::exists(dbCopyPath))
     {
-        ZoteroItem item;
-        item.set_id(itemQuery.value(QStringLiteral("id")).toInt());
-        item.set_modified(itemQuery.value(QStringLiteral("modified"))
-                              .toDateTime()
-                              .toString(QStringLiteral("yyyy-MM-dd"))
-                              .toStdString());
-        item.set_key(itemQuery.value(QStringLiteral("key")).toString().toStdString());
-        item.set_library(itemQuery.value(QStringLiteral("library")).toInt());
-        item.set_type(itemQuery.value(QStringLiteral("type")).toString().toStdString());
-
-        QSqlQuery metadataQuery(m_db);
-        metadataQuery.prepare(ZoteroSQL::selectMetadataByID);
-        metadataQuery.addBindValue(item.id());
-        metadataQuery.exec();
-        if (metadataQuery.lastError().isValid())
-        {
-            qWarning() << "Failed to query metadata: " << metadataQuery.lastError().text();
-        }
-        while (metadataQuery.next())
-        {
-            const QString name = metadataQuery.value(QStringLiteral("name")).toString();
-            const QString value = metadataQuery.value(QStringLiteral("value")).toString();
-
-            if (name == QStringLiteral("title") || name == QStringLiteral("caseName"))
-            {
-                item.set_title(value.toStdString());
-            }
-            else if (name == QStringLiteral("date"))
-            {
-
-                QRegularExpressionMatch match = ZOTERO_DATE_REGEX.match(value);
-                if (!match.hasMatch())
-                {
-                    item.set_date(value.left(4).toStdString());
-                }
-                else
-                {
-                    item.set_date(match.captured(1).toStdString());
-                }
-            }
-            else if (name == QStringLiteral("abstractNote"))
-            {
-                item.set_abstract(value.toStdString());
-            }
-        }
-
-        QSqlQuery attachmentsQuery(m_db);
-        attachmentsQuery.prepare(ZoteroSQL::selectAttachmentsByID);
-        attachmentsQuery.addBindValue(item.id());
-        attachmentsQuery.exec();
-        if (attachmentsQuery.lastError().isValid())
-        {
-            qWarning() << "Failed to query attachments: " << attachmentsQuery.lastError().text();
-        }
-        while (attachmentsQuery.next())
-        {
-            Attachment *attachment = item.add_attachments();
-            attachment->set_key(attachmentsQuery.value(QStringLiteral("key")).toString().toStdString());
-            attachment->set_path(attachmentsQuery.value(QStringLiteral("path")).toString().toStdString());
-            attachment->set_title(attachmentsQuery.value(QStringLiteral("title")).toString().toStdString());
-            attachment->set_url(attachmentsQuery.value(QStringLiteral("url")).toString().toStdString());
-            attachment->set_contenttype(attachmentsQuery.value(QStringLiteral("contentType")).toString().toStdString());
-        }
-
-        QSqlQuery collectionsQuery(m_db);
-        collectionsQuery.prepare(ZoteroSQL::selectCollectionsByID);
-        collectionsQuery.addBindValue(item.id());
-        collectionsQuery.exec();
-        if (collectionsQuery.lastError().isValid())
-        {
-            qWarning() << "Failed to query collections: " << collectionsQuery.lastError().text();
-        }
-        while (collectionsQuery.next())
-        {
-            Collection *collection = item.add_collections();
-            collection->set_name(collectionsQuery.value(QStringLiteral("name")).toString().toStdString());
-            collection->set_key(collectionsQuery.value(QStringLiteral("key")).toString().toStdString());
-        }
-
-        QSqlQuery creatorsQuery(m_db);
-        creatorsQuery.prepare(ZoteroSQL::selectCreatorsByID);
-        creatorsQuery.addBindValue(item.id());
-        creatorsQuery.exec();
-        if (creatorsQuery.lastError().isValid())
-        {
-            qWarning() << "Failed to query creators: " << creatorsQuery.lastError().text();
-        }
-        while (creatorsQuery.next())
-        {
-            Creator *creator = item.add_creators();
-            creator->set_index(creatorsQuery.value(QStringLiteral("index")).toInt());
-            creator->set_given(creatorsQuery.value(QStringLiteral("given")).toString().toStdString());
-            creator->set_family(creatorsQuery.value(QStringLiteral("family")).toString().toStdString());
-            creator->set_type(creatorsQuery.value(QStringLiteral("type")).toString().toStdString());
-        }
-
-        QSqlQuery notesQuery(m_db);
-        notesQuery.prepare(ZoteroSQL::selectNotesByID);
-        notesQuery.addBindValue(item.id());
-        notesQuery.exec();
-        if (notesQuery.lastError().isValid())
-        {
-            qWarning() << "Failed to query notes: " << notesQuery.lastError().text();
-        }
-        while (notesQuery.next())
-        {
-            auto note = notesQuery.value(QStringLiteral("note")).toString();
-            note.remove(HTML_TAG_REGEX);
-            item.add_notes(note.simplified().toStdString());
-        }
-
-        QSqlQuery tagsQuery(m_db);
-        tagsQuery.prepare(ZoteroSQL::selectTagsByID);
-        tagsQuery.addBindValue(item.id());
-        tagsQuery.exec();
-        if (tagsQuery.lastError().isValid())
-        {
-            qWarning() << "Failed to query tags: " << tagsQuery.lastError().text();
-        }
-        while (tagsQuery.next())
-        {
-            item.add_tags(tagsQuery.value(QStringLiteral("name")).toString().toStdString());
-        }
-
-        if (!item.IsInitialized())
-        {
-            qWarning() << "Item is not initialized: " << item.DebugString().c_str();
-        }
-
-        co_yield item;
+        QFile::remove(dbCopyPath);
     }
+    QFile::copy(m_dbPath, dbCopyPath);
+    {
+        auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), dbConnectionId);
+        db.setDatabaseName(dbCopyPath);
+        db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+        if (!db.open())
+        {
+            qWarning() << "Failed to open Index database: " << db.lastError().text();
+            co_return;
+        }
+        QSqlQuery query(db);
+        bool queryResult;
+        if (lastModified.has_value())
+        {
+            query.prepare(ZoteroSQL::queryByLastModified);
+            query.addBindValue(lastModified.value().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+            queryResult = query.exec();
+        }
+        else
+        {
+            queryResult = query.exec(ZoteroSQL::query);
+        }
+
+        if (!queryResult)
+            qWarning() << "Failed to query items:" << query.lastError().text();
+
+
+        while (query.next())
+        {
+            ZoteroItem item{
+                .id = query.value(QStringLiteral("id")).toInt(),
+                .key = query.value(QStringLiteral("key")).toString().toStdString(),
+                .modified = query.value(QStringLiteral("modified")).toString().toStdString(),
+                .meta = json::parse(query.value(QStringLiteral("meta")).toString().toStdString()),
+                .attachments = json::parse(query.value(QStringLiteral("attachments")).toString().toStdString()).get<
+                    std::vector<Attachment>>(),
+                .collections = json::parse(query.value(QStringLiteral("collections")).toString().toStdString()).get<
+                    std::vector<std::string>>(),
+                .note = json::parse(query.value(QStringLiteral("note")).toString().toStdString()).get<std::vector<
+                    std::string>>(),
+                .tags = json::parse(query.value(QStringLiteral("tags")).toString().toStdString()).get<std::vector<
+                    std::string>>(),
+                .authors = json::parse(query.value(QStringLiteral("authors")).toString().toStdString()).get<std::vector<
+                    std::string>>()
+            };
+            co_yield std::move(item);
+        }
+    }
+
+    QSqlDatabase::removeDatabase(dbConnectionId);
+    QFile::remove(dbCopyPath);
 }
