@@ -9,7 +9,6 @@
 #include <optional>
 #include "zotero_item.h"
 
-const QRegularExpression ZOTERO_DATE_REGEX(QStringLiteral(R"((\d{4})-(\d{2})-(\d{2}).*)"));
 const QRegularExpression HTML_TAG_REGEX(QStringLiteral(R"(<[^>]*>)"));
 
 namespace ZoteroSQL

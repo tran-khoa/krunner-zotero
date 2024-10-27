@@ -18,10 +18,7 @@ void ZoteroRunner::init()
     index.setup();
 
     connect(this, &AbstractRunner::prepare, this,
-            [this, index]()
-            {
-                index.update();
-            });
+            [this]() { Index(m_dbPath, Zotero(m_zoteroPath)).update(); });
 }
 
 void ZoteroRunner::match(KRunner::RunnerContext &context)
@@ -33,14 +30,14 @@ void ZoteroRunner::match(KRunner::RunnerContext &context)
     for (const auto &[item, score] : results)
     {
         KRunner::QueryMatch match(this);
-        match.setText(QString::fromStdString(item.meta.at("title")));
-        match.setSubtext(QString::fromStdString(item.meta.at("year")));
+        match.setText(
+            QStringLiteral("<b>%1</b><br><i>%2 (%3)</i>").arg(QString::fromStdString(item.meta.at("title")),
+                                                         item.authorSummary(), item.year()));
+        match.setData(QString::fromStdString(json(item).dump()));
         match.setMultiLine(true);
         match.setIconName(QStringLiteral("zotero"));
         match.setRelevance(score / results[0].second);
         match.setCategoryRelevance(KRunner::QueryMatch::CategoryRelevance::High);
-
-        match.setData(QString::fromStdString(json(item).dump()));
         matches.emplace_back(match);
     }
     context.addMatches(matches);
@@ -72,8 +69,12 @@ void ZoteroRunner::run(const KRunner::RunnerContext &context, const KRunner::Que
 void ZoteroRunner::reloadConfiguration()
 {
     const KConfigGroup c = config();
-    m_zoteroPath = c.readEntry("zoteroPath", QDir::home().filePath(QStringLiteral("Zotero")));
-    m_dbPath = c.readEntry("dbPath", QStandardPaths::standardLocations(QStandardPaths::AppDataLocation).first());
+    m_zoteroPath = c.readEntry("zoteroPath", QDir::home().filePath(QStringLiteral("Zotero/zotero.sqlite")));
+    const QDir KRunnerPath = QStandardPaths::standardLocations(QStandardPaths::AppDataLocation).first();
+    if (!KRunnerPath.exists())
+        if (!KRunnerPath.mkpath(QStringLiteral(".")))
+            qDebug() << "Failed to create KRunner directory.";
+    m_dbPath = c.readEntry("dbPath", KRunnerPath.filePath(QStringLiteral("zotero.sqlite")));
 }
 
 

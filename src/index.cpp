@@ -16,7 +16,6 @@ using json = nlohmann::json;
 
 constexpr int DB_VERSION = 0;
 
-const QRegularExpression ZOTERO_DATE_REGEX(QStringLiteral(R"((\d{4})-(\d{2})-(\d{2}).*)"));
 const QRegularExpression HTML_TAG_REGEX(QStringLiteral(R"(<[^>]*>)"));
 
 template <typename T>
@@ -226,18 +225,7 @@ void Index::update(const bool force) const
                 metaQuery.bindValue(QStringLiteral(":shortTitle"), getOrNull(item.meta, "shortTitle"));
                 metaQuery.bindValue(QStringLiteral(":doi"), getOrNull(item.meta, "DOI"));
                 metaQuery.bindValue(QStringLiteral(":abstract"), getOrNull(item.meta, "abstractNote"));
-                metaQuery.bindValue(QStringLiteral(":year"), QVariant());
-                for (const auto dateKey : {"dateEnacted", "dateDecided", "filingDate", "issueDate", "date"})
-                {
-                    if (const auto it = item.meta.find(dateKey); it != item.meta.end())
-                    {
-                        const auto dateValue = QString::fromStdString(it->second);
-                        const QRegularExpressionMatch match = ZOTERO_DATE_REGEX.match(dateValue);
-                        metaQuery.bindValue(
-                            QStringLiteral(":year"), match.hasMatch() ? match.captured(1) : dateValue.left(4));
-                        break;
-                    }
-                }
+                metaQuery.bindValue(QStringLiteral(":year"), item.year());
                 std::vector<std::string> publishers;
                 for (const auto publisherKey : {"publisher", "journalAbbreviation", "conferenceName",
                                                 "proceedingsTitle", "websiteTitle"})
