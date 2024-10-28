@@ -1,0 +1,18 @@
+{
+  "KPlugin": {
+    "Authors": [
+      {
+        "Email": "@CMAKE_PROJECT_AUTHOR_EMAIL@",
+        "Name": "@CMAKE_PROJECT_AUTHOR@"
+      }
+    ],
+    "Description": "Zotero integration for KRunner",
+    "EnabledByDefault": true,
+    "Icon": "zotero",
+    "License": "MIT",
+    "Name": "Zotero",
+    "Version": "@CMAKE_PROJECT_VERSION@",
+    "Website": "@CMAKE_PROJECT_HOMEPAGE_URL@"
+  },
+  "X-Plasma-Runner-Min-Letter-Count": 4
+}

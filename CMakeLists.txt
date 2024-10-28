@@ -49,9 +49,7 @@ add_definitions(
 )
 
 add_subdirectory(src)
-if (BUILD_TESTING)
-    add_subdirectory(autotests)
-endif ()
+# add_subdirectory(examples)
 
 # add clang-format target for all our real source files
 file(GLOB_RECURSE ALL_CLANG_FORMAT_SOURCE_FILES *.cpp *.h)

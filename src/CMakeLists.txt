@@ -27,4 +27,6 @@ target_link_libraries(krunner_zotero_static
 kcoreaddons_add_plugin(krunner_zotero SOURCES krunner_zotero.cpp INSTALL_NAMESPACE "kf6/krunner")
 target_link_libraries(krunner_zotero krunner_zotero_static)
 
+configure_file(krunner_zotero.json.in krunner_zotero.json)
+
 install(TARGETS krunner_zotero DESTINATION ${KDE_INSTALL_QTPLUGINDIR}/kf${QT_MAJOR_VERSION}/krunner/)

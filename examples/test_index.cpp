@@ -1,8 +1,8 @@
 #include <QApplication>
 
-#include <iostream>
 #include "index.h"
 #include "zotero.h"
+#include <iostream>
 
 int main(int argc, char **argv)
 {
@@ -18,13 +18,10 @@ int main(int argc, char **argv)
     std::getline(std::cin, name);
     std::cout << "Searching for " << name << std::endl;
 
-    for (const auto &[item, score] : index.search(QString::fromStdString(name)))
-    {
+    for (const auto &[item, score] : index.search(QString::fromStdString(name))) {
         qWarning() << item.key << QStringLiteral(" score ") << score;
-        for (const auto &attachment : item.attachments)
-        {
-            if (attachment.contentType == "application/pdf")
-            {
+        for (const auto &attachment : item.attachments) {
+            if (attachment.contentType == "application/pdf") {
                 std::cout << attachment.key << std::endl;
             }
         }
