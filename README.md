@@ -1,5 +1,10 @@
 KRunner Zotero plugin
 =====================
+![GitHub License](https://img.shields.io/github/license/tran-khoa/krunner-zotero)
+![GitHub Release](https://img.shields.io/github/v/release/tran-khoa/krunner-zotero)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/tran-khoa/krunner-zotero/ci.yml)
+![GitHub top language](https://img.shields.io/github/languages/top/tran-khoa/krunner-zotero)
+
 Search through your [Zotero](https://www.zotero.org/) papers based on metadata as well as notes, tags, etc.,
 via KDE Plasma's awesome [KRunner](https://userbase.kde.org/Plasma/Krunner).
 Inspired by [ZotHero](https://github.com/deanishe/zothero).
