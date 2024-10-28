@@ -4,6 +4,8 @@ KRunner Zotero plugin
 ![GitHub Release](https://img.shields.io/github/v/release/tran-khoa/krunner-zotero)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/tran-khoa/krunner-zotero/ci.yml)
 ![GitHub top language](https://img.shields.io/github/languages/top/tran-khoa/krunner-zotero)
+![Zotero version](https://img.shields.io/badge/Zotero-7-green?logo=zotero&logoColor=CC2936)
+![KDE Plasma version](https://img.shields.io/badge/KDE%20Plasma-6-54a3d8?&logo=kde&logoColor=54a3d8)
 
 Search through your [Zotero](https://www.zotero.org/) papers based on metadata as well as notes, tags, etc.,
 via KDE Plasma's awesome [KRunner](https://userbase.kde.org/Plasma/Krunner).
