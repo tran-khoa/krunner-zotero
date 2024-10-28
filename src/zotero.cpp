@@ -122,20 +122,25 @@ std::vector<int> Zotero::validIDs() const
 {
     std::vector<int> ids;
     const auto dbConnectionId = QUuid::createUuid().toString();
+    const QString dbCopyPath =
+        QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/krunner_zotero_%1.sqlite").
+        arg(dbConnectionId);
+    if (QFile::exists(dbCopyPath))
+        QFile::remove(dbCopyPath);
+    QFile::copy(m_dbPath, dbCopyPath);
+
     {
         auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), dbConnectionId);
-        db.setDatabaseName(m_dbPath);
+        db.setDatabaseName(dbCopyPath);
         db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
         if (!db.open())
         {
             qCCritical(KRunnerZoteroZotero) << "Failed to open Zotero database: " << db.lastError().text();
-            return ids;
         }
         QSqlQuery query(db);
         if (!query.exec(ZoteroSQL::queryValidIDs))
         {
             qCCritical(KRunnerZoteroZotero) << "Failed to query valid IDs: " << query.lastError().text();
-            return ids;
         }
         if (query.next())
         {
@@ -144,6 +149,7 @@ std::vector<int> Zotero::validIDs() const
         }
     }
     QSqlDatabase::removeDatabase(dbConnectionId);
+    QFile::remove(dbCopyPath);
     return ids;
 }
 
@@ -154,9 +160,7 @@ std::generator<const ZoteroItem&&> Zotero::items(const std::optional<const QDate
         QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/krunner_zotero_%1.sqlite").
         arg(dbConnectionId);
     if (QFile::exists(dbCopyPath))
-    {
         QFile::remove(dbCopyPath);
-    }
     QFile::copy(m_dbPath, dbCopyPath);
     {
         auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), dbConnectionId);
