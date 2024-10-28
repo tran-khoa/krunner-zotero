@@ -1,6 +1,6 @@
 KRunner Zotero plugin
 =====================
-Search through your [Zotero](https://www.zotero.org/) papers  based on metadata as well as notes, tags, etc.,
+Search through your [Zotero](https://www.zotero.org/) papers based on metadata as well as notes, tags, etc.,
 via KDE Plasma's awesome [KRunner](https://userbase.kde.org/Plasma/Krunner).
 Inspired by [ZotHero](https://github.com/deanishe/zothero).
 <div align="center">
