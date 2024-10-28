@@ -120,29 +120,33 @@ QDateTime Zotero::lastModified() const { return QFileInfo(m_dbPath).lastModified
 std::vector<int> Zotero::validIDs() const
 {
     std::vector<int> ids;
-    auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"));
-    db.setDatabaseName(m_dbPath);
-    db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
-    if (!db.open())
+    const auto dbConnectionId = QUuid::createUuid().toString();
     {
-        qWarning() << "Failed to open Zotero database: " << db.lastError().text();
-        return ids;
+        auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), dbConnectionId);
+        db.setDatabaseName(m_dbPath);
+        db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+        if (!db.open())
+        {
+            qWarning() << "Failed to open Zotero database: " << db.lastError().text();
+            return ids;
+        }
+        QSqlQuery query(db);
+        if (!query.exec(ZoteroSQL::queryValidIDs))
+        {
+            qWarning() << "Failed to query valid IDs: " << query.lastError().text();
+            return ids;
+        }
+        if (query.next())
+        {
+            auto jsonString = query.value(QStringLiteral("id")).toString().toStdString();
+            ids = json::parse(jsonString).get<std::vector<int>>();
+        }
     }
-    QSqlQuery query(db);
-    if (!query.exec(ZoteroSQL::queryValidIDs))
-    {
-        qWarning() << "Failed to query valid IDs: " << query.lastError().text();
-        return ids;
-    }
-    if (query.next())
-    {
-        auto jsonString = query.value(QStringLiteral("id")).toString().toStdString();
-        ids = json::parse(jsonString).get<std::vector<int>>();
-    }
+    QSqlDatabase::removeDatabase(dbConnectionId);
     return ids;
 }
 
-std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDateTime> &lastModified) const
+std::generator<const ZoteroItem&&> Zotero::items(const std::optional<const QDateTime>& lastModified) const
 {
     const auto dbConnectionId = QUuid::createUuid().toString();
     const QString dbCopyPath =
@@ -160,6 +164,7 @@ std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDat
         if (!db.open())
         {
             qWarning() << "Failed to open Index database: " << db.lastError().text();
+            QFile::remove(dbCopyPath);
             co_return;
         }
         QSqlQuery query(db);
