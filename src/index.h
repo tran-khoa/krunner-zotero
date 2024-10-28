@@ -6,23 +6,6 @@
 Q_DECLARE_LOGGING_CATEGORY(KRunnerZoteroIndex)
 
 
-struct IndexEntry
-{
-    int id;
-    QString key;
-    QString title;
-    QString year;
-    QString creators;
-    QString authors;
-    QString editors;
-    QString tags;
-    QString collections;
-    QString attachments;
-    QString notes;
-    QString abstract;
-    float score;
-};
-
 class Index
 {
 public:
