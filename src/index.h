@@ -3,6 +3,9 @@
 
 #include <utility>
 
+Q_DECLARE_LOGGING_CATEGORY(KRunnerZoteroIndex)
+
+
 struct IndexEntry
 {
     int id;
@@ -29,7 +32,7 @@ public:
     }
 
     ~Index() = default;
-    [[nodiscard]] std::vector<std::pair<ZoteroItem, float>> search(const QString& needle) const;
+    [[nodiscard]] std::vector<std::pair<ZoteroItem, float>> search(QString&& needle) const;
     bool setup() const;
     void update(bool force = false) const;
 

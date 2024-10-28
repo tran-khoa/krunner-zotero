@@ -1,7 +1,11 @@
 #pragma once
 
+#include <QLoggingCategory>
 #include <KRunner/AbstractRunner>
 #include <index.h>
+
+Q_DECLARE_LOGGING_CATEGORY(KRunnerZotero)
+
 
 class ZoteroRunner final : public KRunner::AbstractRunner
 {

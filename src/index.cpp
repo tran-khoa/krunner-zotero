@@ -4,22 +4,22 @@
 
 #include "zotero.h"
 
-#include <QRegularExpression>
+#include <QString>
 #include <QSqlError>
 #include <QSqlQuery>
 #include <QUuid>
 
-#include "utils.h"
+
+Q_LOGGING_CATEGORY(KRunnerZoteroIndex, "krunner-zotero/index")
+
 
 using json = nlohmann::json;
 
-
 constexpr int DB_VERSION = 0;
 
-const QRegularExpression HTML_TAG_REGEX(QStringLiteral(R"(<[^>]*>)"));
 
 template <typename T>
-std::string join(const std::vector<T> &vec, const char sep = ' ')
+std::string join(const std::vector<T>& vec, const char sep = ' ')
 {
     std::ostringstream oss;
     for (size_t i = 0; i < vec.size(); ++i)
@@ -67,12 +67,13 @@ namespace IndexSQL
         QStringLiteral("INSERT INTO dbinfo VALUES('version', %1);").arg(DB_VERSION)
     };
     const auto getVersion = QStringLiteral("SELECT value AS version FROM dbinfo WHERE key = 'version'");
-    const std::array reset = {QStringLiteral("DROP TABLE IF EXISTS `data`;"),
-                              QStringLiteral("DROP TABLE IF EXISTS `dbinfo`;"),
-                              QStringLiteral("DROP TABLE IF EXISTS `modified`;"),
-                              QStringLiteral("DROP TABLE IF EXISTS `search`;"),
-                              QStringLiteral("VACUUM;"),
-                              QStringLiteral("PRAGMA INTEGRITY_CHECK;")};
+    const std::array reset = {
+        QStringLiteral("DROP TABLE IF EXISTS `data`;"),
+        QStringLiteral("DROP TABLE IF EXISTS `dbinfo`;"),
+        QStringLiteral("DROP TABLE IF EXISTS `search`;"),
+        QStringLiteral("VACUUM;"),
+        QStringLiteral("PRAGMA INTEGRITY_CHECK;")
+    };
     const auto insertOrReplaceSearch =
         QStringLiteral("INSERT OR REPLACE "
             "INTO search (rowid, key, title, shortTitle, doi, year, authors, tags, collections, notes, abstract, publisher) "
@@ -94,6 +95,7 @@ bool Index::setup() const
     *
     * @return true if the database was (re-)created, false otherwise
     */
+    qCDebug(KRunnerZoteroIndex()) << "Setting up index...";
     bool do_update = false;
     const auto connectionId = QUuid::createUuid().toString();
     {
@@ -101,7 +103,7 @@ bool Index::setup() const
         db.setDatabaseName(m_dbIndexPath);
         if (!db.open())
         {
-            qWarning() << "Failed to open Index database: " << db.lastError().text();
+            qCCritical(KRunnerZoteroIndex) << "Failed to open Index database: " << db.lastError().text();
             return false;
         }
 
@@ -113,30 +115,31 @@ bool Index::setup() const
         {
             if (versionQuery.value(QStringLiteral("version")).toInt() != DB_VERSION)
             {
-                qWarning() << "[Index] Database version outdated, most recent version is: " << DB_VERSION << " but is "
+                qCInfo(KRunnerZoteroIndex) << "Database version outdated, most recent version is: " << DB_VERSION <<
+ " but is "
                     << versionQuery.value(QStringLiteral("version")).toInt();
 
                 if (db.transaction())
                 {
                     QSqlQuery resetQuery(db);
-                    for (const QString &statement : IndexSQL::reset)
+                    for (const QString& statement : IndexSQL::reset)
                     {
                         resetQuery.exec(statement);
                     }
                     if (!db.commit())
                     {
-                        qWarning() << "[Index] Failed to commit reset" << db.lastError().text();
+                        qCCritical(KRunnerZoteroIndex) << "Failed to commit reset" << db.lastError().text();
                         db.rollback();
                         do_create_tables = false;
                     }
                     else
                     {
-                        qDebug() << "[Index] Reset completed";
+                        qCInfo(KRunnerZoteroIndex) << "Reset completed";
                     }
                 }
                 else
                 {
-                    qWarning() << "[Index] Failed to start transaction" << db.lastError().text();
+                    qCCritical(KRunnerZoteroIndex) << "Failed to start transaction" << db.lastError().text();
                     do_create_tables = false;
                 }
             }
@@ -148,28 +151,28 @@ bool Index::setup() const
 
         if (do_create_tables)
         {
-            qDebug() << "[Index] Creating tables...";
+            qCInfo(KRunnerZoteroIndex) << "Creating tables...";
             if (db.transaction())
             {
                 QSqlQuery createQuery(db);
-                for (const QString &statement : IndexSQL::createTables)
+                for (const QString& statement : IndexSQL::createTables)
                 {
                     createQuery.exec(statement);
                 }
                 if (!db.commit())
                 {
-                    qWarning() << "[Index] Failed to commit create tables" << db.lastError().text();
+                    qCCritical(KRunnerZoteroIndex) << "Failed to commit create tables" << db.lastError().text();
                     db.rollback();
                 }
                 else
                 {
-                    qDebug() << "[Index] Tables created";
+                    qCInfo(KRunnerZoteroIndex) << "Tables created";
                     do_update = true;
                 }
             }
             else
             {
-                qWarning() << "[Index] Failed to start transaction" << db.lastError().text();
+                qCCritical(KRunnerZoteroIndex) << "Failed to start transaction" << db.lastError().text();
             }
         }
     }
@@ -184,7 +187,7 @@ QDateTime Index::last_modified() const { return QFileInfo(m_dbIndexPath).lastMod
 
 bool Index::needs_update() const { return m_zotero.lastModified() > last_modified(); }
 
-QVariant getOrNull(const std::unordered_map<std::string, std::string> &m, const std::string &key)
+QVariant getOrNull(const std::unordered_map<std::string, std::string>& m, const std::string& key)
 {
     if (const auto it = m.find(key); it != m.end())
     {
@@ -197,22 +200,24 @@ void Index::update(const bool force) const
 {
     if (!force && !needs_update())
     {
-        qDebug() << "[Index] Index is up to date.";
+        qCDebug(KRunnerZoteroIndex) << "Index is up to date.";
         return;
     }
 
-    qDebug() << "[Index] Updating index...";
+    qCInfo(KRunnerZoteroIndex) << "Updating index...";
+    qCDebug(KRunnerZoteroIndex()) << "Last update of index: " << last_modified().toString();
+    qCDebug(KRunnerZoteroIndex()) << "Last update of Zotero: " << m_zotero.lastModified().toString();
     const auto connectionId = QUuid::createUuid().toString();
     {
         auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionId);
         db.setDatabaseName(m_dbIndexPath);
         if (!db.open())
         {
-            qWarning() << "[Index] Failed to open Index database: " << db.lastError().text();
+            qCCritical(KRunnerZoteroIndex) << "Failed to open Index database: " << db.lastError().text();
             return;
         }
 
-        for (const ZoteroItem &&item : m_zotero.items(last_modified()))
+        for (const ZoteroItem&& item : m_zotero.items(last_modified()))
         {
             if (db.transaction())
             {
@@ -227,8 +232,10 @@ void Index::update(const bool force) const
                 metaQuery.bindValue(QStringLiteral(":abstract"), getOrNull(item.meta, "abstractNote"));
                 metaQuery.bindValue(QStringLiteral(":year"), item.year());
                 std::vector<std::string> publishers;
-                for (const auto publisherKey : {"publisher", "journalAbbreviation", "conferenceName",
-                                                "proceedingsTitle", "websiteTitle"})
+                for (const auto publisherKey : {
+                         "publisher", "journalAbbreviation", "conferenceName",
+                         "proceedingsTitle", "websiteTitle"
+                     })
                 {
                     if (const auto it = item.meta.find(publisherKey); it != item.meta.end())
                     {
@@ -243,7 +250,8 @@ void Index::update(const bool force) const
 
                 if (!metaQuery.exec())
                 {
-                    qWarning() << "Failed to insert or replace item in Index: " << metaQuery.lastError().text();
+                    qCCritical(KRunnerZoteroIndex) << "Failed to insert or replace item in Index: " << metaQuery.
+lastError().text();
                     db.rollback();
                     metaQuery.finish();
                     continue;
@@ -257,25 +265,25 @@ void Index::update(const bool force) const
                 dataQuery.bindValue(QStringLiteral(":obj"), QString::fromStdString(j.dump()));
                 if (!dataQuery.exec() || !db.commit())
                 {
-                    qWarning() << "Failed to insert or replace data in Index: " << dataQuery.lastError().text();
+                    qCCritical(KRunnerZoteroIndex) << "Failed to insert or replace data in Index: " << dataQuery.
+lastError().text();
                     db.rollback();
                     dataQuery.finish();
                     continue;
-
                 }
                 dataQuery.finish();
-                qDebug() << "Inserted item " << item.id << item.key;
+                qCDebug(KRunnerZoteroIndex) << "Inserted item " << item.id << item.key;
             }
             else
             {
-                qWarning() << "Failed to start transaction: " << db.lastError().text();
+                qCCritical(KRunnerZoteroIndex) << "Failed to start transaction: " << db.lastError().text();
             }
         }
 
         const auto validIDs = m_zotero.validIDs();
         if (validIDs.empty())
         {
-            qWarning() << "[Index] Failed to get valid IDs or Zotero database empty.";
+            qCWarning(KRunnerZoteroIndex) << "Failed to get valid IDs or Zotero database empty.";
         }
         else
         {
@@ -283,21 +291,26 @@ void Index::update(const bool force) const
             deleteQuery.prepare(IndexSQL::deleteIdNotIn.arg(QString::fromStdString(join(validIDs, ','))));
             if (!deleteQuery.exec())
             {
-                qWarning() << "[Index] Failed to delete invalid IDs: " << deleteQuery.lastError().text();
-            } else
+                qCCritical(KRunnerZoteroIndex) << "Failed to delete invalid IDs: " << deleteQuery.lastError().text();
+            }
+            else
             {
-                qDebug() << "[Index] Deleted " << deleteQuery.numRowsAffected() << " record(s).";
+                qCDebug(KRunnerZoteroIndex) << "Deleted " << deleteQuery.numRowsAffected() << " record(s).";
             }
         }
-
     }
     QSqlDatabase::removeDatabase(connectionId);
-    qDebug() << "[Index] Index successfully updated";
+    qCDebug(KRunnerZoteroIndex) << "Index successfully updated";
 }
 
-std::vector<std::pair<ZoteroItem, float>> Index::search(const QString &needle) const
+std::vector<std::pair<ZoteroItem, float>> Index::search(QString&& needle) const
 {
     const auto connectionId = QUuid::createUuid().toString();
+
+    // escape all double quotes in needle
+    needle.replace(QStringLiteral("\""), QStringLiteral("\"\""));
+    needle.prepend(QStringLiteral("\""));
+    needle.append(QStringLiteral("\""));
     std::vector<std::pair<ZoteroItem, float>> result;
     {
         QSqlDatabase db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionId);
@@ -305,7 +318,7 @@ std::vector<std::pair<ZoteroItem, float>> Index::search(const QString &needle) c
         db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
         if (!db.open())
         {
-            qWarning() << "[Index] Failed to open Index database: " << db.lastError().text();
+            qCCritical(KRunnerZoteroIndex) << "Failed to open Index database: " << db.lastError().text();
             return {};
         }
         QSqlQuery query(db);
@@ -313,7 +326,8 @@ std::vector<std::pair<ZoteroItem, float>> Index::search(const QString &needle) c
         query.addBindValue(needle);
         if (!query.exec())
         {
-            qWarning() << "[Index] Failed to search Index: " << query.lastError().text();
+            qCCritical(KRunnerZoteroIndex) << "Failed to search Index: " << query.lastError().text();
+            qCCritical(KRunnerZoteroIndex) << "with query" << query.lastQuery();
             return {};
         }
 
@@ -327,7 +341,8 @@ std::vector<std::pair<ZoteroItem, float>> Index::search(const QString &needle) c
             dataQuery.exec();
             if (!dataQuery.exec())
             {
-                qWarning() << "Failed to get data for item " << id << ": " << dataQuery.lastError().text();
+                qCCritical(KRunnerZoteroIndex) << "Failed to get data for item " << id << ": " << dataQuery.lastError().
+text();
                 continue;
             }
             if (dataQuery.next())
@@ -338,12 +353,11 @@ std::vector<std::pair<ZoteroItem, float>> Index::search(const QString &needle) c
             }
             else
             {
-                qWarning() << "Failed to parse item " << id << ": no data";
+                qCCritical(KRunnerZoteroIndex) << "Failed to get data for item " << id << ": no data";
             }
         }
     }
 
     QSqlDatabase::removeDatabase(connectionId);
     return result;
-
 }

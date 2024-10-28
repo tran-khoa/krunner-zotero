@@ -9,7 +9,8 @@
 #include <optional>
 #include "zotero_item.h"
 
-const QRegularExpression HTML_TAG_REGEX(QStringLiteral(R"(<[^>]*>)"));
+Q_LOGGING_CATEGORY(KRunnerZoteroZotero, "krunner-zotero/zotero")
+
 
 namespace ZoteroSQL
 {
@@ -127,13 +128,13 @@ std::vector<int> Zotero::validIDs() const
         db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
         if (!db.open())
         {
-            qWarning() << "Failed to open Zotero database: " << db.lastError().text();
+            qCCritical(KRunnerZoteroZotero) << "Failed to open Zotero database: " << db.lastError().text();
             return ids;
         }
         QSqlQuery query(db);
         if (!query.exec(ZoteroSQL::queryValidIDs))
         {
-            qWarning() << "Failed to query valid IDs: " << query.lastError().text();
+            qCCritical(KRunnerZoteroZotero) << "Failed to query valid IDs: " << query.lastError().text();
             return ids;
         }
         if (query.next())
@@ -163,7 +164,7 @@ std::generator<const ZoteroItem&&> Zotero::items(const std::optional<const QDate
         db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
         if (!db.open())
         {
-            qWarning() << "Failed to open Index database: " << db.lastError().text();
+            qCCritical(KRunnerZoteroZotero) << "Failed to open Zotero database: " << db.lastError().text();
             QFile::remove(dbCopyPath);
             co_return;
         }
@@ -181,7 +182,7 @@ std::generator<const ZoteroItem&&> Zotero::items(const std::optional<const QDate
         }
 
         if (!queryResult)
-            qWarning() << "Failed to query items:" << query.lastError().text();
+            qCCritical(KRunnerZoteroZotero) << "Failed to query items:" << query.lastError().text();
 
 
         while (query.next())

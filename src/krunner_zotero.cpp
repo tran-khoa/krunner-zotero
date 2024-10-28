@@ -7,6 +7,8 @@
 #include <QString>
 #include <index.h>
 
+Q_LOGGING_CATEGORY(KRunnerZotero, "krunner-zotero")
+
 
 void ZoteroRunner::init()
 {
@@ -59,7 +61,7 @@ void ZoteroRunner::run(const KRunner::RunnerContext &context, const KRunner::Que
             return;
         }
     }
-    qDebug() << "No PDF attachment found, opening Zotero item." << QString::fromStdString(item.key);
+    qCDebug(KRunnerZotero) << "No PDF attachment found, opening Zotero item." << QString::fromStdString(item.key);
     const QUrl url(QStringLiteral("zotero://select/library/items/") + QString::fromStdString(item.key));
     // ReSharper disable once CppDFAMemoryLeak
     const auto job = new KIO::OpenUrlJob(url);
@@ -73,7 +75,7 @@ void ZoteroRunner::reloadConfiguration()
     const QDir KRunnerPath = QStandardPaths::standardLocations(QStandardPaths::AppDataLocation).first();
     if (!KRunnerPath.exists())
         if (!KRunnerPath.mkpath(QStringLiteral(".")))
-            qDebug() << "Failed to create KRunner directory.";
+            qCDebug(KRunnerZotero) << "Failed to create KRunner directory.";
     m_dbPath = c.readEntry("dbPath", KRunnerPath.filePath(QStringLiteral("zotero.sqlite")));
 }
 
@@ -81,5 +83,4 @@ void ZoteroRunner::reloadConfiguration()
 K_PLUGIN_CLASS_WITH_JSON(ZoteroRunner, "krunner_zotero.json")
 
 #include "krunner_zotero.moc"
-
 #include "moc_krunner_zotero.cpp"

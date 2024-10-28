@@ -1,10 +1,14 @@
 #pragma once
 
+#include <QLoggingCategory>
 #include <QDateTime>
 #include <QString>
 #include <generator>
 #include <utility>
 #include "zotero_item.h"
+
+Q_DECLARE_LOGGING_CATEGORY(KRunnerZoteroZotero)
+
 
 class Zotero
 {
