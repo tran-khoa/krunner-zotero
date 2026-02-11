@@ -11,10 +11,9 @@
 
 Q_LOGGING_CATEGORY(KRunnerZoteroZotero, "krunner-zotero/zotero")
 
-
 namespace ZoteroSQL
 {
-    const auto query = QStringLiteral(R"(
+const auto query = QStringLiteral(R"(
         WITH _Authors AS (SELECT itemCreators.itemID as parentID,
                                  concat(
                                          creators.firstName, ' ', creators.lastName
@@ -77,7 +76,7 @@ namespace ZoteroSQL
                items.key                                        AS key,
                coalesce(_ItemAttachments.attachment_list, '[]') AS attachments,
                coalesce(_ItemCollections.collections, '[]')     AS collections,
-               _ItemMeta.meta                                   AS meta,
+               coalesce(_ItemMeta.meta, '{}')                   AS meta,
                coalesce(_ItemAuthors.authors, '[]')             AS authors,
                coalesce(_ItemNotes.note, '[]')                  AS note,
                coalesce(_ItemTags.tags, '[]')                   AS tags
@@ -91,10 +90,10 @@ namespace ZoteroSQL
                  LEFT JOIN _ItemNotes ON items.itemID = _ItemNotes.parentID
                  LEFT JOIN _ItemTags ON items.itemID = _ItemTags.parentID
         WHERE itemTypes.typeName NOT IN ('attachment', 'annotation', 'note')
-          AND deletedItems.dateDeleted IS NULL;
+          AND deletedItems.dateDeleted IS NULL
         )");
-    const auto selectItemsByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
-    const auto selectMetadataByID = QStringLiteral(R"(
+const auto selectItemsByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
+const auto selectMetadataByID = QStringLiteral(R"(
             SELECT  fields.fieldName AS name,
                     itemDataValues.value AS value
                 FROM itemData
@@ -104,8 +103,8 @@ namespace ZoteroSQL
                     ON itemData.valueID = itemDataValues.valueID
                 WHERE itemData.itemID = ?
             )");
-    const auto queryByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
-    const auto queryValidIDs = QStringLiteral(R"(
+const auto queryByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
+const auto queryValidIDs = QStringLiteral(R"(
         SELECT json_group_array(items.itemID) AS id
         FROM items
                  LEFT JOIN itemTypes ON items.itemTypeID = itemTypes.itemTypeID
@@ -115,16 +114,13 @@ namespace ZoteroSQL
         )");
 } // namespace ZoteroSQL
 
-
 QDateTime Zotero::lastModified() const { return QFileInfo(m_dbPath).lastModified(); }
 
 std::vector<int> Zotero::validIDs() const
 {
     std::vector<int> ids;
     const auto dbConnectionId = QUuid::createUuid().toString();
-    const QString dbCopyPath =
-        QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/krunner_zotero_%1.sqlite").
-        arg(dbConnectionId);
+    const QString dbCopyPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/krunner_zotero_%1.sqlite").arg(dbConnectionId);
     if (QFile::exists(dbCopyPath))
         QFile::remove(dbCopyPath);
     QFile::copy(m_dbPath, dbCopyPath);
@@ -133,17 +129,14 @@ std::vector<int> Zotero::validIDs() const
         auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), dbConnectionId);
         db.setDatabaseName(dbCopyPath);
         db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
-        if (!db.open())
-        {
+        if (!db.open()) {
             qCCritical(KRunnerZoteroZotero) << "Failed to open Zotero database: " << db.lastError().text();
         }
         QSqlQuery query(db);
-        if (!query.exec(ZoteroSQL::queryValidIDs))
-        {
+        if (!query.exec(ZoteroSQL::queryValidIDs)) {
             qCCritical(KRunnerZoteroZotero) << "Failed to query valid IDs: " << query.lastError().text();
         }
-        if (query.next())
-        {
+        if (query.next()) {
             auto jsonString = query.value(QStringLiteral("id")).toString().toStdString();
             ids = json::parse(jsonString).get<std::vector<int>>();
         }
@@ -153,12 +146,10 @@ std::vector<int> Zotero::validIDs() const
     return ids;
 }
 
-std::generator<const ZoteroItem&&> Zotero::items(const std::optional<const QDateTime>& lastModified) const
+std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDateTime> &lastModified) const
 {
     const auto dbConnectionId = QUuid::createUuid().toString();
-    const QString dbCopyPath =
-        QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/krunner_zotero_%1.sqlite").
-        arg(dbConnectionId);
+    const QString dbCopyPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/krunner_zotero_%1.sqlite").arg(dbConnectionId);
     if (QFile::exists(dbCopyPath))
         QFile::remove(dbCopyPath);
     QFile::copy(m_dbPath, dbCopyPath);
@@ -166,47 +157,36 @@ std::generator<const ZoteroItem&&> Zotero::items(const std::optional<const QDate
         auto db = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), dbConnectionId);
         db.setDatabaseName(dbCopyPath);
         db.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
-        if (!db.open())
-        {
+        if (!db.open()) {
             qCCritical(KRunnerZoteroZotero) << "Failed to open Zotero database: " << db.lastError().text();
             QFile::remove(dbCopyPath);
+            QSqlDatabase::removeDatabase(dbConnectionId);
             co_return;
         }
         QSqlQuery query(db);
         bool queryResult;
-        if (lastModified.has_value())
-        {
+        if (lastModified.has_value()) {
             query.prepare(ZoteroSQL::queryByLastModified);
             query.addBindValue(lastModified.value().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
             queryResult = query.exec();
-        }
-        else
-        {
+        } else {
+            query.clear();
             queryResult = query.exec(ZoteroSQL::query);
         }
 
         if (!queryResult)
             qCCritical(KRunnerZoteroZotero) << "Failed to query items:" << query.lastError().text();
 
-
-        while (query.next())
-        {
-            ZoteroItem item{
-                .id = query.value(QStringLiteral("id")).toInt(),
-                .key = query.value(QStringLiteral("key")).toString().toStdString(),
-                .modified = query.value(QStringLiteral("modified")).toString().toStdString(),
-                .meta = json::parse(query.value(QStringLiteral("meta")).toString().toStdString()),
-                .attachments = json::parse(query.value(QStringLiteral("attachments")).toString().toStdString()).get<
-                    std::vector<Attachment>>(),
-                .collections = json::parse(query.value(QStringLiteral("collections")).toString().toStdString()).get<
-                    std::vector<std::string>>(),
-                .note = json::parse(query.value(QStringLiteral("note")).toString().toStdString()).get<std::vector<
-                    std::string>>(),
-                .tags = json::parse(query.value(QStringLiteral("tags")).toString().toStdString()).get<std::vector<
-                    std::string>>(),
-                .authors = json::parse(query.value(QStringLiteral("authors")).toString().toStdString()).get<std::vector<
-                    std::string>>()
-            };
+        while (query.next()) {
+            ZoteroItem item{.id = query.value(QStringLiteral("id")).toInt(),
+                            .key = query.value(QStringLiteral("key")).toString().toStdString(),
+                            .modified = query.value(QStringLiteral("modified")).toString().toStdString(),
+                            .meta = json::parse(query.value(QStringLiteral("meta")).toString().toStdString()),
+                            .attachments = json::parse(query.value(QStringLiteral("attachments")).toString().toStdString()).get<std::vector<Attachment>>(),
+                            .collections = json::parse(query.value(QStringLiteral("collections")).toString().toStdString()).get<std::vector<std::string>>(),
+                            .note = json::parse(query.value(QStringLiteral("note")).toString().toStdString()).get<std::vector<std::string>>(),
+                            .tags = json::parse(query.value(QStringLiteral("tags")).toString().toStdString()).get<std::vector<std::string>>(),
+                            .authors = json::parse(query.value(QStringLiteral("authors")).toString().toStdString()).get<std::vector<std::string>>()};
             co_yield std::move(item);
         }
     }

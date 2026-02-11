@@ -353,7 +353,7 @@ text();
             }
             else
             {
-                qCCritical(KRunnerZoteroIndex) << "Failed to get data for item " << id << ": no data";
+                qCDebug(KRunnerZoteroIndex) << "Failed to get data for item " << id << ": no data";
             }
         }
     }
