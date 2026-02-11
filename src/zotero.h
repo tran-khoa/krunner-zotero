@@ -18,8 +18,7 @@ public:
     [[nodiscard]] QDateTime lastModified() const;
     [[nodiscard]] std::generator<const ZoteroItem&&>
     items(const std::optional<const QDateTime> &lastModified = std::nullopt) const;
-    [[nodiscard]] std::vector<int> validIDs() const;
-
+    [[nodiscard]] std::vector<std::string> validKeys() const;
 
 private:
     const QString m_dbPath;

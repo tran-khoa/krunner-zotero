@@ -15,8 +15,7 @@ Q_LOGGING_CATEGORY(KRunnerZoteroIndex, "krunner-zotero/index")
 
 using json = nlohmann::json;
 
-constexpr int DB_VERSION = 0;
-
+constexpr int DB_VERSION = 1;
 
 template <typename T>
 std::string join(const std::vector<T>& vec, const char sep = ' ')
@@ -36,8 +35,7 @@ std::string join(const std::vector<T>& vec, const char sep = ' ')
 
 namespace IndexSQL
 {
-    const std::array createTables = {
-        QStringLiteral(R"(
+const std::array createTables = {QStringLiteral(R"(
         CREATE VIRTUAL TABLE search USING fts5(
             key,
             title,
@@ -52,39 +50,38 @@ namespace IndexSQL
             publisher
         );
         )"),
-        QStringLiteral(R"(
+                                 QStringLiteral(R"(
         CREATE TABLE data (
-            id INTEGER PRIMARY KEY NOT NULL,
+            key TEXT PRIMARY KEY NOT NULL,
             obj TEXT DEFAULT "{}"
         );
         )"),
-        QStringLiteral(R"(
+                                 QStringLiteral(R"(
         CREATE TABLE dbinfo (
             key TEXT PRIMARY KEY NOT NULL,
             value TEXT NOT NULL
         );
         )"),
-        QStringLiteral("INSERT INTO dbinfo VALUES('version', %1);").arg(DB_VERSION)
-    };
-    const auto getVersion = QStringLiteral("SELECT value AS version FROM dbinfo WHERE key = 'version'");
-    const std::array reset = {
-        QStringLiteral("DROP TABLE IF EXISTS `data`;"),
-        QStringLiteral("DROP TABLE IF EXISTS `dbinfo`;"),
-        QStringLiteral("DROP TABLE IF EXISTS `search`;"),
-        QStringLiteral("VACUUM;"),
-        QStringLiteral("PRAGMA INTEGRITY_CHECK;")
-    };
-    const auto insertOrReplaceSearch =
-        QStringLiteral("INSERT OR REPLACE "
-            "INTO search (rowid, key, title, shortTitle, doi, year, authors, tags, collections, notes, abstract, publisher) "
-            "VALUES(:rowid, :key, :title, :shortTitle, :doi, :year, :authors, :tags, :collections, :notes, :abstract, :publisher);");
-    const auto insertOrReplaceData = QStringLiteral("INSERT OR REPLACE INTO data (id, obj) VALUES(:id, :obj);");
-    const auto search =
-        QStringLiteral("SELECT rowid, *, bm25(search, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.7, 0.5, 0.4, 0.4, 0.4) "
-            "AS score FROM search WHERE search MATCH ? "
-            "ORDER BY score LIMIT 10");
-    const auto selectData = QStringLiteral("SELECT obj FROM data WHERE id = ?");
-    const auto deleteIdNotIn = QStringLiteral("DELETE FROM data WHERE id NOT IN (%1);");
+                                 QStringLiteral("INSERT INTO dbinfo VALUES('version', %1);").arg(DB_VERSION)};
+const auto getVersion = QStringLiteral("SELECT value AS version FROM dbinfo WHERE key = 'version'");
+const std::array reset = {QStringLiteral("DROP TABLE IF EXISTS `data`;"),
+                          QStringLiteral("DROP TABLE IF EXISTS `dbinfo`;"),
+                          QStringLiteral("DROP TABLE IF EXISTS `search`;"),
+                          QStringLiteral("VACUUM;"),
+                          QStringLiteral("PRAGMA INTEGRITY_CHECK;")};
+const auto insertOrReplaceSearch = QStringLiteral(
+    "INSERT OR REPLACE "
+    "INTO search (rowid, key, title, shortTitle, doi, year, authors, tags, collections, notes, abstract, publisher) "
+    "VALUES(:rowid, :key, :title, :shortTitle, :doi, :year, :authors, :tags, :collections, :notes, :abstract, :publisher);");
+const auto insertOrReplaceData = QStringLiteral("INSERT OR REPLACE INTO data (key, obj) VALUES(:key, :obj);");
+const auto search = QStringLiteral(
+    "SELECT rowid, *, bm25(search, 0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.7, 0.5, 0.4, 0.4, 0.4) "
+    "AS score FROM search WHERE search MATCH ? "
+    "ORDER BY score LIMIT 10");
+const auto selectData = QStringLiteral("SELECT obj FROM data WHERE key = ?");
+const auto deleteKeysNotInSearch = QStringLiteral("DELETE FROM search WHERE key NOT IN (%1);");
+const auto deleteKeysNotInData = QStringLiteral("DELETE FROM data WHERE key NOT IN (%1);");
+
 } // namespace IndexSQL
 
 
@@ -217,8 +214,15 @@ void Index::update(const bool force) const
             return;
         }
 
-        for (const ZoteroItem&& item : m_zotero.items(last_modified()))
-        {
+        QDateTime last_modified_dt;
+        if (force) {
+            // earliest date possible, so all items are returned
+            last_modified_dt = QDateTime(QDate(1970, 1, 1), QTime(0, 0));
+        } else {
+            last_modified_dt = last_modified();
+        }
+
+        for (const ZoteroItem &&item : m_zotero.items(last_modified_dt)) {
             if (db.transaction())
             {
                 QSqlQuery metaQuery(db);
@@ -250,8 +254,7 @@ void Index::update(const bool force) const
 
                 if (!metaQuery.exec())
                 {
-                    qCCritical(KRunnerZoteroIndex) << "Failed to insert or replace item in Index: " << metaQuery.
-lastError().text();
+                    qCCritical(KRunnerZoteroIndex) << "Failed to insert or replace item in Index (meta): " << metaQuery.lastError().text();
                     db.rollback();
                     metaQuery.finish();
                     continue;
@@ -260,13 +263,12 @@ lastError().text();
 
                 QSqlQuery dataQuery(db);
                 dataQuery.prepare(IndexSQL::insertOrReplaceData);
-                dataQuery.bindValue(QStringLiteral(":id"), item.id);
+                dataQuery.bindValue(QStringLiteral(":key"), QString::fromStdString(item.key));
                 json j = item;
                 dataQuery.bindValue(QStringLiteral(":obj"), QString::fromStdString(j.dump()));
                 if (!dataQuery.exec() || !db.commit())
                 {
-                    qCCritical(KRunnerZoteroIndex) << "Failed to insert or replace data in Index: " << dataQuery.
-lastError().text();
+                    qCCritical(KRunnerZoteroIndex) << "Failed to insert or replace data in Index (data): " << dataQuery.lastError().text();
                     db.rollback();
                     dataQuery.finish();
                     continue;
@@ -280,22 +282,25 @@ lastError().text();
             }
         }
 
-        const auto validIDs = m_zotero.validIDs();
-        if (validIDs.empty())
-        {
+        if (const auto validKeys = m_zotero.validKeys(); validKeys.empty()) {
             qCWarning(KRunnerZoteroIndex) << "Failed to get valid IDs or Zotero database empty.";
-        }
-        else
-        {
-            QSqlQuery deleteQuery(db);
-            deleteQuery.prepare(IndexSQL::deleteIdNotIn.arg(QString::fromStdString(join(validIDs, ','))));
-            if (!deleteQuery.exec())
-            {
-                qCCritical(KRunnerZoteroIndex) << "Failed to delete invalid IDs: " << deleteQuery.lastError().text();
+        } else {
+            // add double quotes around each key
+            std::vector<std::string> quotedKeys;
+            quotedKeys.reserve(validKeys.size());
+            for (const auto &key : validKeys) {
+                quotedKeys.push_back('"' + key + '"');
             }
-            else
-            {
-                qCDebug(KRunnerZoteroIndex) << "Deleted " << deleteQuery.numRowsAffected() << " record(s).";
+
+            if (QSqlQuery deleteQuerySearch(db); !deleteQuerySearch.exec(IndexSQL::deleteKeysNotInSearch.arg(QString::fromStdString(join(quotedKeys, ','))))) {
+                qCCritical(KRunnerZoteroIndex) << "Failed to delete invalid IDs: " << deleteQuerySearch.lastError().text();
+            } else {
+                qCDebug(KRunnerZoteroIndex) << "Deleted " << deleteQuerySearch.numRowsAffected() << " record(s) from search table.";
+            }
+            if (QSqlQuery deleteQueryData(db); !deleteQueryData.exec(IndexSQL::deleteKeysNotInData.arg(QString::fromStdString(join(quotedKeys, ','))))) {
+                qCCritical(KRunnerZoteroIndex) << "Failed to delete invalid IDs: " << deleteQueryData.lastError().text();
+            } else {
+                qCDebug(KRunnerZoteroIndex) << "Deleted " << deleteQueryData.numRowsAffected() << " record(s) from data table.";
             }
         }
     }
@@ -333,16 +338,15 @@ std::vector<std::pair<ZoteroItem, float>> Index::search(QString&& needle) const
 
         while (query.next())
         {
-            const auto id = query.value(QStringLiteral("rowid")).toInt();
+            const auto key = query.value(QStringLiteral("key")).toString();
             const auto score = query.value(QStringLiteral("score")).toFloat();
             QSqlQuery dataQuery(db);
             dataQuery.prepare(IndexSQL::selectData);
-            dataQuery.addBindValue(id);
+            dataQuery.addBindValue(key);
             dataQuery.exec();
             if (!dataQuery.exec())
             {
-                qCCritical(KRunnerZoteroIndex) << "Failed to get data for item " << id << ": " << dataQuery.lastError().
-text();
+                qCCritical(KRunnerZoteroIndex) << "Failed to get data for item " << key << ": " << dataQuery.lastError().text();
                 continue;
             }
             if (dataQuery.next())
@@ -353,7 +357,7 @@ text();
             }
             else
             {
-                qCDebug(KRunnerZoteroIndex) << "Failed to get data for item " << id << ": no data";
+                qCDebug(KRunnerZoteroIndex) << "Failed to get data for item " << key << ": no data";
             }
         }
     }

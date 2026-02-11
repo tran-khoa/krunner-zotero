@@ -57,6 +57,7 @@ const auto query = QStringLiteral(R"(
                                                  )
                                          ) AS attachment_list
                                   from _Attachments
+                                  WHERE (path is NOT NULL and contentType is NOT NULL and key is NOT NULL)
                                   GROUP BY _Attachments.parentID),
              _ItemCollections AS (SELECT collectionItems.itemID                       AS parentID,
                                          json_group_array(collections.collectionName) AS collections
@@ -104,8 +105,16 @@ const auto selectMetadataByID = QStringLiteral(R"(
                 WHERE itemData.itemID = ?
             )");
 const auto queryByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
-const auto queryValidIDs = QStringLiteral(R"(
-        SELECT json_group_array(items.itemID) AS id
+// const auto queryValidIDs = QStringLiteral(R"(
+//         SELECT json_group_array(items.itemID) AS id
+//         FROM items
+//                  LEFT JOIN itemTypes ON items.itemTypeID = itemTypes.itemTypeID
+//                  LEFT JOIN deletedItems ON items.itemID = deletedItems.itemID
+//         WHERE itemTypes.typeName NOT IN ('attachment', 'annotation', 'note')
+//           AND deletedItems.dateDeleted IS NULL;
+//         )");
+const auto queryValidKeys = QStringLiteral(R"(
+        SELECT json_group_array(items.key) AS key
         FROM items
                  LEFT JOIN itemTypes ON items.itemTypeID = itemTypes.itemTypeID
                  LEFT JOIN deletedItems ON items.itemID = deletedItems.itemID
@@ -116,9 +125,9 @@ const auto queryValidIDs = QStringLiteral(R"(
 
 QDateTime Zotero::lastModified() const { return QFileInfo(m_dbPath).lastModified(); }
 
-std::vector<int> Zotero::validIDs() const
+std::vector<std::string> Zotero::validKeys() const
 {
-    std::vector<int> ids;
+    std::vector<std::string> keys;
     const auto dbConnectionId = QUuid::createUuid().toString();
     const QString dbCopyPath = QStandardPaths::writableLocation(QStandardPaths::TempLocation) + QStringLiteral("/krunner_zotero_%1.sqlite").arg(dbConnectionId);
     if (QFile::exists(dbCopyPath))
@@ -133,17 +142,17 @@ std::vector<int> Zotero::validIDs() const
             qCCritical(KRunnerZoteroZotero) << "Failed to open Zotero database: " << db.lastError().text();
         }
         QSqlQuery query(db);
-        if (!query.exec(ZoteroSQL::queryValidIDs)) {
+        if (!query.exec(ZoteroSQL::queryValidKeys)) {
             qCCritical(KRunnerZoteroZotero) << "Failed to query valid IDs: " << query.lastError().text();
         }
         if (query.next()) {
-            auto jsonString = query.value(QStringLiteral("id")).toString().toStdString();
-            ids = json::parse(jsonString).get<std::vector<int>>();
+            auto jsonString = query.value(QStringLiteral("key")).toString().toStdString();
+            keys = json::parse(jsonString).get<std::vector<std::string>>();
         }
     }
     QSqlDatabase::removeDatabase(dbConnectionId);
     QFile::remove(dbCopyPath);
-    return ids;
+    return keys;
 }
 
 std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDateTime> &lastModified) const
@@ -167,7 +176,8 @@ std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDat
         bool queryResult;
         if (lastModified.has_value()) {
             query.prepare(ZoteroSQL::queryByLastModified);
-            query.addBindValue(lastModified.value().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss")));
+            const auto lastModifiedStr = lastModified.value().toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+            query.addBindValue(lastModifiedStr);
             queryResult = query.exec();
         } else {
             query.clear();
