@@ -32,9 +32,11 @@ void ZoteroRunner::match(KRunner::RunnerContext &context)
     for (const auto &[item, score] : results)
     {
         KRunner::QueryMatch match(this);
-        match.setText(
-            QStringLiteral("<b>%1</b><br><i>%2 (%3)</i>").arg(QString::fromStdString(item.meta.at("title")),
-                                                         item.authorSummary(), item.year()));
+        if (item.year().isEmpty()) {
+            match.setText(QStringLiteral("<b>%1</b><br><i>%2</i>").arg(QString::fromStdString(item.meta.at("title")), item.authorSummary()));
+        } else {
+            match.setText(QStringLiteral("<b>%1</b><br><i>%2 (%3)</i>").arg(QString::fromStdString(item.meta.at("title")), item.authorSummary(), item.year()));
+        }
         match.setData(QString::fromStdString(json(item).dump()));
         match.setMultiLine(true);
         match.setIconName(QStringLiteral("zotero"));

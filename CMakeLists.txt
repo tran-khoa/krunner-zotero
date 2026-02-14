@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(krunner_zotero)
-set(CMAKE_PROJECT_VERSION "0.1.0")
+set(CMAKE_PROJECT_VERSION "0.2.1")
 add_definitions(-DCMAKE_PROJECT_VERSION="${CMAKE_PROJECT_VERSION}")
 set(CMAKE_PROJECT_HOMEPAGE_URL "https://github.com/tran-khoa/krunner-zotero")
 set(CMAKE_PROJECT_AUTHOR "Viet Anh Khoa Tran")
