@@ -15,9 +15,7 @@ namespace ZoteroSQL
 {
 const auto query = QStringLiteral(R"(
         WITH _Authors AS (SELECT itemCreators.itemID as parentID,
-                                 concat(
-                                         creators.firstName, ' ', creators.lastName
-                                 )                   as author
+                                 (ifnull(creators.firstName, '') || ' ' || ifnull(creators.lastName, '')) as author
                           FROM creators
                                    LEFT JOIN itemCreators ON creators.creatorID = itemCreators.creatorID
                                    LEFT JOIN creatorTypes ON itemCreators.creatorTypeID = creatorTypes.creatorTypeID
@@ -28,7 +26,7 @@ const auto query = QStringLiteral(R"(
                               GROUP BY parentID),
              _ItemMeta AS (SELECT itemData.itemID as parentID,
                                   json_group_object(
-                                          fields.fieldName, itemDataValues.value
+                                          ifnull(fields.fieldName, 'unknown'), itemDataValues.value
                                   )               as meta
                            FROM itemData
                                     LEFT JOIN fields ON itemData.fieldID = fields.fieldID
@@ -39,7 +37,7 @@ const auto query = QStringLiteral(R"(
                                      itemAttachments.path         AS path,
                                      itemAttachments.contentType  AS contentType,
                                      json_group_object(
-                                             fields.fieldName, itemDataValues.value
+                                             ifnull(fields.fieldName, 'unknown'), itemDataValues.value
                                      )                            AS meta
                               FROM itemAttachments
                                        LEFT JOIN items ON itemAttachments.itemID = items.itemID
@@ -93,7 +91,7 @@ const auto query = QStringLiteral(R"(
         WHERE itemTypes.typeName NOT IN ('attachment', 'annotation', 'note')
           AND deletedItems.dateDeleted IS NULL
         )");
-const auto selectItemsByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
+const auto selectItemsByLastModified = query + QStringLiteral(" AND items.dateModified > ?");
 const auto selectMetadataByID = QStringLiteral(R"(
             SELECT  fields.fieldName AS name,
                     itemDataValues.value AS value
@@ -104,7 +102,7 @@ const auto selectMetadataByID = QStringLiteral(R"(
                     ON itemData.valueID = itemDataValues.valueID
                 WHERE itemData.itemID = ?
             )");
-const auto queryByLastModified = query + QStringLiteral(" AND MODIFIED > ?");
+const auto queryByLastModified = query + QStringLiteral(" AND items.dateModified > ?");
 // const auto queryValidIDs = QStringLiteral(R"(
 //         SELECT json_group_array(items.itemID) AS id
 //         FROM items
@@ -184,8 +182,10 @@ std::generator<const ZoteroItem &&> Zotero::items(const std::optional<const QDat
             queryResult = query.exec(ZoteroSQL::query);
         }
 
-        if (!queryResult)
+        if (!queryResult) {
             qCCritical(KRunnerZoteroZotero) << "Failed to query items:" << query.lastError().text();
+            qCCritical(KRunnerZoteroZotero) << "Query: " << query.lastQuery();
+        }
 
         while (query.next()) {
             ZoteroItem item{.id = query.value(QStringLiteral("id")).toInt(),
